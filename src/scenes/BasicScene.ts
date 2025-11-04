@@ -26,7 +26,7 @@ export class BasicScene {
       roughness: 0.5,
     })
     const mesh = new THREE.Mesh(geometry, material)
-    mesh.position.set(0, 1.6, -2) // 放在眼前位置
+    mesh.position.set(0, 3, -2) // 放在眼前位置
     return mesh
   }
 
