@@ -20,6 +20,9 @@ const goToRouter = (path: string) => {
         <div class="feature-card" @click="goToRouter('/dom-overlay')">
           <h3>🤪 演示场景</h3>
         </div>
+        <div class="feature-card" @click="goToRouter('/model-viewer')">
+          <h3>🤖 模型场景</h3>
+        </div>
       </div>
     </div>
   </div>

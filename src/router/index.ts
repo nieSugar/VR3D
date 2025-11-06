@@ -20,6 +20,12 @@ const routes: RouteRecordRaw[] = [
     component: () => import("../views/DOMOverlayDemo.vue"),
     meta: { title: "DOM Overlay 演示" },
   },
+  {
+    path: "/model-viewer",
+    name: "ModelViewer",
+    component: () => import("../views/Model.vue"),
+    meta: { title: "模型文件" },
+  },
 ];
 
 const router = createRouter({
