@@ -9,9 +9,15 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@pmndrs/msdfonts": "^1.0.56",
+    "@pmndrs/uikit": "^1.0.56",
+    "@pmndrs/uikit-default": "^1.0.56",
+    "@preact/signals-core": "^1.12.1",
     "lil-gui": "^0.19.0",
     "three": "^0.181.0",
-    "vue": "^3.5.22"
+    "troika-three-text": "^0.52.4",
+    "vue": "^3.5.22",
+    "vue-router": "^4.6.3"
   },
   "devDependencies": {
     "@types/node": "^24.6.0",

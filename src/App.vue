@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import ThreeScene from './components/ThreeScene.vue'
+import Navigation from './components/Navigation.vue'
 </script>
 
 <template>
   <div id="app">
-    <ThreeScene />
+    <Navigation />
+    <router-view />
   </div>
 </template>
 
@@ -12,5 +13,6 @@ import ThreeScene from './components/ThreeScene.vue'
 #app {
   width: 100vw;
   height: 100vh;
+  overflow: hidden;
 }
 </style>

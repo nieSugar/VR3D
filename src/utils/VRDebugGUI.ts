@@ -42,8 +42,8 @@ export class VRDebugGUI {
     this.camera = camera;
 
     this.panel = new THREE.Group();
-    this.panel.position.set(-1.5, 3, -1); // 左前方
-    this.scene.add(this.panel);
+    this.panel.position.set(-1.3, 0.4, -1); // 左前方
+    this.camera.add(this.panel);
 
     this.createMainMenu();
   }
@@ -327,7 +327,7 @@ export class VRDebugGUI {
     const ctx = canvas.getContext("2d")!;
 
     ctx.fillStyle = "#ffffff";
-    ctx.font = `bold ${size * 1000}px Arial`;
+    ctx.font = `${size * 1000}px Arial`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(text, 256, 64);
@@ -580,12 +580,18 @@ export class VRDebugGUI {
     this.panel.position.set(x, y, z);
   }
 
+  public getPanel() {
+    return this.panel;
+  }
+
   public getCurrentPage() {
     return this.currentPage;
   }
 
   public dispose() {
     this.clearPanel();
-    this.scene.remove(this.panel);
+    if (this.panel.parent) {
+      this.panel.parent.remove(this.panel);
+    }
   }
 }

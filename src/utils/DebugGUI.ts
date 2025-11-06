@@ -1,20 +1,25 @@
 import GUI from 'lil-gui'
 import * as THREE from 'three'
 import { VRDebugPanel } from './VRDebugPanel'
+import { VRDebugGUI } from './VRDebugGUI'
 
 export class DebugGUI {
   private gui: GUI;
   private panelFolder: GUI;
   private cameraFolder: GUI;
+  private vrGuiFolder?: GUI;
   private debugPanel: VRDebugPanel;
   private camera: THREE.PerspectiveCamera;
+  private vrDebugGUI?: VRDebugGUI;
 
   constructor(
     debugPanel: VRDebugPanel,
-    camera: THREE.PerspectiveCamera
+    camera: THREE.PerspectiveCamera,
+    vrDebugGUI?: VRDebugGUI
   ) {
     this.debugPanel = debugPanel
     this.camera = camera
+    this.vrDebugGUI = vrDebugGUI
 
     this.gui = new GUI({ title: '调试面板' })
 
@@ -25,6 +30,12 @@ export class DebugGUI {
     // 摄像头位置控制
     this.cameraFolder = this.gui.addFolder('摄像头位置')
     this.setupCameraControls()
+
+    // VR GUI控制
+    if (this.vrDebugGUI) {
+      this.vrGuiFolder = this.gui.addFolder('VR 3D GUI')
+      this.setupVRGuiControls()
+    }
 
     // 默认展开
     this.panelFolder.open()
@@ -86,35 +97,6 @@ export class DebugGUI {
       .onChange((value: number) => {
         panel.scale.setScalar(value)
       })
-
-    // 预设位置
-    const presets = {
-      前方: () => {
-        panel.position.set(0, 1.6, -2)
-        panel.rotation.set(0, 0, 0)
-        this.updatePanelGUI()
-      },
-      左侧: () => {
-        panel.position.set(-2, 1.6, 0)
-        panel.rotation.set(0, Math.PI / 2, 0)
-        this.updatePanelGUI()
-      },
-      右侧: () => {
-        panel.position.set(2, 1.6, 0)
-        panel.rotation.set(0, -Math.PI / 2, 0)
-        this.updatePanelGUI()
-      },
-      上方: () => {
-        panel.position.set(0, 2.5, 0)
-        panel.rotation.set(-Math.PI / 2, 0, 0)
-        this.updatePanelGUI()
-      },
-    }
-
-    this.panelFolder.add(presets, '前方')
-    this.panelFolder.add(presets, '左侧')
-    this.panelFolder.add(presets, '右侧')
-    this.panelFolder.add(presets, '上方')
   }
 
   private setupCameraControls() {
@@ -180,46 +162,69 @@ export class DebugGUI {
       .onChange(() => {
         this.camera.updateProjectionMatrix()
       })
+  }
 
-    // 预设位置
-    const presets = {
-      默认: () => {
-        const target = getActualCamera()
-        target.position.set(0, 1.6, 3)
-        this.camera.rotation.set(0, 0, 0)
-        this.updateCameraGUI()
-      },
-      俯视: () => {
-        const target = getActualCamera()
-        target.position.set(0, 5, 0)
-        this.camera.rotation.set(-Math.PI / 2, 0, 0)
-        this.updateCameraGUI()
-      },
-      远景: () => {
-        const target = getActualCamera()
-        target.position.set(0, 2, 8)
-        this.camera.rotation.set(0, 0, 0)
-        this.updateCameraGUI()
-      },
+  private setupVRGuiControls() {
+    if (!this.vrDebugGUI || !this.vrGuiFolder) return
+
+    // 显示/隐藏控制
+    const visibility = {
+      visible: true,
+      toggle: () => {
+        this.vrDebugGUI?.toggle()
+        visibility.visible = !visibility.visible
+      }
     }
 
-    this.cameraFolder.add(presets, '默认')
-    this.cameraFolder.add(presets, '俯视')
-    this.cameraFolder.add(presets, '远景')
+    this.vrGuiFolder
+      .add(visibility, 'visible')
+      .name('显示')
+      .onChange((value: boolean) => {
+        if (value) {
+          this.vrDebugGUI?.show()
+        } else {
+          this.vrDebugGUI?.hide()
+        }
+      })
+
+    this.vrGuiFolder.add(visibility, 'toggle').name('切换显示 (G键)')
+
+    const panel = this.vrDebugGUI?.getPanel();
+    if (!panel) return;
+    // 位置控制（相对于摄像头）
+    const position = {
+      x: panel.position.x,
+      y: panel.position.y,
+      z: panel.position.z
+    }
+
+    this.vrGuiFolder
+      .add(position, 'x', -10, 10, 0.1)
+      .name('X 位置（相对摄像头）')
+      .onChange((value: number) => {
+        this.vrDebugGUI?.setPosition(value, position.y, position.z)
+      })
+
+    this.vrGuiFolder
+      .add(position, 'y', -10, 10, 0.1)
+      .name('Y 位置（相对摄像头）')
+      .onChange((value: number) => {
+        this.vrDebugGUI?.setPosition(position.x, value, position.z)
+      })
+
+    this.vrGuiFolder
+      .add(position, 'z', -10, 10, 0.1)
+      .name('Z 位置（相对摄像头）')
+      .onChange((value: number) => {
+        this.vrDebugGUI?.setPosition(position.x, position.y, value)
+      })
+
+    // 默认打开
+    this.vrGuiFolder.open()
   }
 
   private updatePanel() {
     // 可以在这里添加额外的更新逻辑
-  }
-
-  private updatePanelGUI() {
-    // 更新GUI显示的值
-    this.gui.controllersRecursive().forEach(controller => controller.updateDisplay())
-  }
-
-  private updateCameraGUI() {
-    // 更新GUI显示的值
-    this.gui.controllersRecursive().forEach(controller => controller.updateDisplay())
   }
 
   public show() {
@@ -236,6 +241,19 @@ export class DebugGUI {
     } else {
       this.gui.hide()
     }
+  }
+
+  public setVRDebugGUI(vrDebugGUI: VRDebugGUI) {
+    this.vrDebugGUI = vrDebugGUI
+    
+    // 如果VR GUI文件夹已存在，先销毁
+    if (this.vrGuiFolder) {
+      this.vrGuiFolder.destroy()
+    }
+    
+    // 创建新的VR GUI控制
+    this.vrGuiFolder = this.gui.addFolder('VR 3D GUI')
+    this.setupVRGuiControls()
   }
 
   public destroy() {

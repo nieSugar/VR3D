@@ -9,7 +9,7 @@ import { VRDebugPanel } from '../utils/VRDebugPanel'
 import { DebugGUI } from '../utils/DebugGUI'
 import { VRDebugGUI } from '../utils/VRDebugGUI'
 
-const { container, getContext, animate } = useThree(true)
+const { container, getContext, animate } = useThree()
 
 onMounted(() => {
   const { scene, renderer, camera } = getContext()
@@ -30,6 +30,9 @@ onMounted(() => {
   const vrDebugGUI = new VRDebugGUI(scene, debugPanel, camera)
   // vrDebugGUI.hide() // 默认隐藏
   debugPanel.log('VR 3D GUI已就绪 (按 G 键切换显示)')
+  
+  // 将VR GUI添加到调试面板中进行控制
+  debugGUI.setVRDebugGUI(vrDebugGUI)
 
   // 添加键盘快捷键切换GUI
   const handleKeyPress = (e: KeyboardEvent) => {
@@ -206,6 +209,13 @@ onMounted(() => {
     if (rig) {
       moveControllersToParent(rig)
       debugPanel.log('手柄已绑定到玩家')
+      
+      // 将VR GUI面板也移动到 VR Player Rig（从camera移到rig，这样能正确跟随头显）
+      const vrGuiPanel = vrDebugGUI.getPanel()
+      if (vrGuiPanel.parent === camera) {
+        rig.add(vrGuiPanel)
+        debugPanel.log('VR GUI已绑定到玩家')
+      }
     }
   })
 
@@ -214,6 +224,13 @@ onMounted(() => {
 
     // 将控制器移回场景
     moveControllersToParent(scene)
+    
+    // 将VR GUI面板移回camera
+    const vrGuiPanel = vrDebugGUI.getPanel()
+    if (vrGuiPanel.parent && vrGuiPanel.parent !== camera) {
+      camera.add(vrGuiPanel)
+      debugPanel.log('VR GUI已移回摄像头')
+    }
   })
 
   // 按键状态跟踪

@@ -8,15 +8,33 @@ importers:
 
   .:
     dependencies:
+      '@pmndrs/msdfonts':
+        specifier: ^1.0.56
+        version: 1.0.56
+      '@pmndrs/uikit':
+        specifier: ^1.0.56
+        version: 1.0.56(three@0.181.0)
+      '@pmndrs/uikit-default':
+        specifier: ^1.0.56
+        version: 1.0.56(three@0.181.0)
+      '@preact/signals-core':
+        specifier: ^1.12.1
+        version: 1.12.1
       lil-gui:
         specifier: ^0.19.0
         version: 0.19.2
       three:
         specifier: ^0.181.0
         version: 0.181.0
+      troika-three-text:
+        specifier: ^0.52.4
+        version: 0.52.4(three@0.181.0)
       vue:
         specifier: ^3.5.22
         version: 3.5.22(typescript@5.9.3)
+      vue-router:
+        specifier: ^4.6.3
+        version: 4.6.3(vue@3.5.22(typescript@5.9.3))
     devDependencies:
       '@types/node':
         specifier: ^24.6.0
@@ -224,6 +242,26 @@ packages:
   '@jridgewell/sourcemap-codec@1.5.5':
     resolution: {integrity: sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og==}
 
+  '@pmndrs/msdfonts@1.0.56':
+    resolution: {integrity: sha512-E7dwr8+DbVe9LLR2vKycQgecX13NNNXu9E1brlhWfusGVwKBJ2njbko6PUvgObrHuYGApQYotXROW76sWSjhYA==}
+
+  '@pmndrs/uikit-default@1.0.56':
+    resolution: {integrity: sha512-2Rj3sCf+oqZhdDpsOJHBuwKDfo8OB739FPDwsgNmqZ8xOsn/f2xS9/H2l19qGo74ZsmZfMgx8e2vxSATBxZZVA==}
+
+  '@pmndrs/uikit-lucide@1.0.56':
+    resolution: {integrity: sha512-l/UbYXVvF2kxPDPQaywoPq/luKUc3lArGs2PTVpYhSLR0A03cMQJCzXi7tMT+4tjkwyCBPB3nl71u0KjSt6pmQ==}
+
+  '@pmndrs/uikit-pub-sub@1.0.56':
+    resolution: {integrity: sha512-K7SrjXEFec30NF1Nxg9dwRN90xqUSPSMgOyaoep77/PvKy2g+MyZhkQLFbhdBtwGOj1JhFK5zncvtZXltgrcoA==}
+
+  '@pmndrs/uikit@1.0.56':
+    resolution: {integrity: sha512-Fh4uY4oP/vAMx6GTM5ZpXd484220ldBlZAuItgmWT4KeNML8YBBiZR0P/pOFt7AFgAt3yNWSkp/9Ya6Rui6a8w==}
+    peerDependencies:
+      three: '>=0.162'
+
+  '@preact/signals-core@1.12.1':
+    resolution: {integrity: sha512-BwbTXpj+9QutoZLQvbttRg5x3l5468qaV2kufh+51yha1c53ep5dY4kTuZR35+3pAZxpfQerGJiQqg34ZNZ6uA==}
+
   '@rolldown/pluginutils@1.0.0-beta.29':
     resolution: {integrity: sha512-NIJgOsMjbxAXvoGq/X0gD7VPMQ8j9g0BiDaNjVNVjvl+iKXxL3Jre0v31RmBYeLEmkbj2s02v8vFTbUXi5XS2Q==}
 
@@ -394,6 +432,9 @@ packages:
   '@vue/compiler-ssr@3.5.22':
     resolution: {integrity: sha512-GdgyLvg4R+7T8Nk2Mlighx7XGxq/fJf9jaVofc3IL0EPesTE86cP/8DD1lT3h1JeZr2ySBvyqKQJgbS54IX1Ww==}
 
+  '@vue/devtools-api@6.6.4':
+    resolution: {integrity: sha512-sGhTPMuXqZ1rVOk32RylztWkfXTRhuS7vgAKv0zjqk8gbsHkJ7xfFf+jbySxt7tWObEJwyKaHMikV/WGDiQm8g==}
+
   '@vue/language-core@3.1.2':
     resolution: {integrity: sha512-PyFDCqpdfYUT+oMLqcc61oHfJlC6yjhybaefwQjRdkchIihToOEpJ2Wu/Ebq2yrnJdd1EsaAvZaXVAqcxtnDxQ==}
     peerDependencies:
@@ -441,6 +482,9 @@ packages:
 
   axios@1.13.1:
     resolution: {integrity: sha512-hU4EGxxt+j7TQijx1oYdAjw4xuIp1wRQSsbMFwSthCWeBQur1eF+qJ5iQ5sN3Tw8YRzQNKb8jszgBdMDVqwJcw==}
+
+  bidi-js@1.0.3:
+    resolution: {integrity: sha512-RKshQI1R3YQ+n9YJz2QQ147P66ELpa1FQEg20Dk8oW9t2KgLbpDLLp9aGZ7y8WHSshDknG0bknqGw5/tyCs5tw==}
 
   call-bind-apply-helpers@1.0.2:
     resolution: {integrity: sha512-Sp1ablJ0ivDkSzjcaJdxEunN5/XvksFJ2sMBFfq6x0ryhQV/2b/KwFe21cMpmHtPOSij8K99/wSfoEuTObmuMQ==}
@@ -604,6 +648,10 @@ packages:
   proxy-from-env@1.1.0:
     resolution: {integrity: sha512-D+zkORCbA9f1tdWRK0RaCR3GPv50cMxcrz4X8k5LTSUD1Dkw47mKJEZQNunItRTkWwgtaUSo1RVFRIG9ZXiFYg==}
 
+  require-from-string@2.0.2:
+    resolution: {integrity: sha512-Xf0nWe6RseziFMu+Ap9biiUbmplq6S9/p+7w7YXP/JBHhrUDDUhwa+vANyubuqfZWTveU//DYVGsDG7RKL/vEw==}
+    engines: {node: '>=0.10.0'}
+
   rollup@4.52.5:
     resolution: {integrity: sha512-3GuObel8h7Kqdjt0gxkEzaifHTqLVW56Y/bjN7PSQtkKr0w3V/QYSdt6QWYtd7A1xUtYQigtdUfgj1RvWVtorw==}
     engines: {node: '>=18.0.0', npm: '>=8.0.0'}
@@ -619,6 +667,19 @@ packages:
   tinyglobby@0.2.15:
     resolution: {integrity: sha512-j2Zq4NyQYG5XMST4cbs02Ak8iJUdxRM0XI5QyxXuZOzKOINmWurp3smXu3y5wDcJrptwpSjgXHzIQxR0omXljQ==}
     engines: {node: '>=12.0.0'}
+
+  troika-three-text@0.52.4:
+    resolution: {integrity: sha512-V50EwcYGruV5rUZ9F4aNsrytGdKcXKALjEtQXIOBfhVoZU9VAqZNIoGQ3TMiooVqFAbR1w15T+f+8gkzoFzawg==}
+    peerDependencies:
+      three: '>=0.125.0'
+
+  troika-three-utils@0.52.4:
+    resolution: {integrity: sha512-NORAStSVa/BDiG52Mfudk4j1FG4jC4ILutB3foPnfGbOeIs9+G5vZLa0pnmnaftZUGm4UwSoqEpWdqvC7zms3A==}
+    peerDependencies:
+      three: '>=0.125.0'
+
+  troika-worker-utils@0.52.0:
+    resolution: {integrity: sha512-W1CpvTHykaPH5brv5VHLfQo9D1OYuo0cSBEUQFFT/nBUzM8iD6Lq2/tgG/f1OelbAS1WtaTPQzE5uM49egnngw==}
 
   typescript@5.9.3:
     resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
@@ -677,6 +738,11 @@ packages:
   vscode-uri@3.1.0:
     resolution: {integrity: sha512-/BpdSx+yCQGnCvecbyXdxHDkuk55/G3xwnC0GqY4gmQ3j+A+g8kzzgB4Nk/SINjqn6+waqw3EgbVF2QKExkRxQ==}
 
+  vue-router@4.6.3:
+    resolution: {integrity: sha512-ARBedLm9YlbvQomnmq91Os7ck6efydTSpRP3nuOKCvgJOHNrhRoJDSKtee8kcL1Vf7nz6U+PMBL+hTvR3bTVQg==}
+    peerDependencies:
+      vue: ^3.5.0
+
   vue-tsc@3.1.2:
     resolution: {integrity: sha512-3fd4DY0rFczs5f+VB3OhcLU83V6+3Puj2yLBe0Ak65k7ERk+STVNKaOAi0EBo6Lc15UiJB6LzU6Mxy4+h/pKew==}
     hasBin: true
@@ -690,6 +756,12 @@ packages:
     peerDependenciesMeta:
       typescript:
         optional: true
+
+  webgl-sdf-generator@1.1.1:
+    resolution: {integrity: sha512-9Z0JcMTFxeE+b2x1LJTdnaT8rT8aEp7MVxkNwoycNmJWwPdzoXzMh0BjJSh/AEFP+KPYZUli814h8bJZFIZ2jA==}
+
+  yoga-layout@3.2.1:
+    resolution: {integrity: sha512-0LPOt3AxKqMdFBZA3HBAt/t/8vIKq7VaQYbuA8WxCgung+p9TVyKRYdpvCb80HcdTN2NkbIKbhNwKUfm3tQywQ==}
 
 snapshots:
 
@@ -787,6 +859,35 @@ snapshots:
     optional: true
 
   '@jridgewell/sourcemap-codec@1.5.5': {}
+
+  '@pmndrs/msdfonts@1.0.56': {}
+
+  '@pmndrs/uikit-default@1.0.56(three@0.181.0)':
+    dependencies:
+      '@pmndrs/uikit': 1.0.56(three@0.181.0)
+      '@pmndrs/uikit-lucide': 1.0.56(three@0.181.0)
+    transitivePeerDependencies:
+      - three
+
+  '@pmndrs/uikit-lucide@1.0.56(three@0.181.0)':
+    dependencies:
+      '@pmndrs/uikit': 1.0.56(three@0.181.0)
+    transitivePeerDependencies:
+      - three
+
+  '@pmndrs/uikit-pub-sub@1.0.56':
+    dependencies:
+      '@preact/signals-core': 1.12.1
+
+  '@pmndrs/uikit@1.0.56(three@0.181.0)':
+    dependencies:
+      '@pmndrs/msdfonts': 1.0.56
+      '@pmndrs/uikit-pub-sub': 1.0.56
+      '@preact/signals-core': 1.12.1
+      three: 0.181.0
+      yoga-layout: 3.2.1
+
+  '@preact/signals-core@1.12.1': {}
 
   '@rolldown/pluginutils@1.0.0-beta.29': {}
 
@@ -926,6 +1027,8 @@ snapshots:
       '@vue/compiler-dom': 3.5.22
       '@vue/shared': 3.5.22
 
+  '@vue/devtools-api@6.6.4': {}
+
   '@vue/language-core@3.1.2(typescript@5.9.3)':
     dependencies:
       '@volar/language-core': 2.4.23
@@ -980,6 +1083,10 @@ snapshots:
       proxy-from-env: 1.1.0
     transitivePeerDependencies:
       - debug
+
+  bidi-js@1.0.3:
+    dependencies:
+      require-from-string: 2.0.2
 
   call-bind-apply-helpers@1.0.2:
     dependencies:
@@ -1141,6 +1248,8 @@ snapshots:
 
   proxy-from-env@1.1.0: {}
 
+  require-from-string@2.0.2: {}
+
   rollup@4.52.5:
     dependencies:
       '@types/estree': 1.0.8
@@ -1178,6 +1287,20 @@ snapshots:
       fdir: 6.5.0(picomatch@4.0.3)
       picomatch: 4.0.3
 
+  troika-three-text@0.52.4(three@0.181.0):
+    dependencies:
+      bidi-js: 1.0.3
+      three: 0.181.0
+      troika-three-utils: 0.52.4(three@0.181.0)
+      troika-worker-utils: 0.52.0
+      webgl-sdf-generator: 1.1.1
+
+  troika-three-utils@0.52.4(three@0.181.0):
+    dependencies:
+      three: 0.181.0
+
+  troika-worker-utils@0.52.0: {}
+
   typescript@5.9.3: {}
 
   undici-types@7.16.0: {}
@@ -1205,6 +1328,11 @@ snapshots:
 
   vscode-uri@3.1.0: {}
 
+  vue-router@4.6.3(vue@3.5.22(typescript@5.9.3)):
+    dependencies:
+      '@vue/devtools-api': 6.6.4
+      vue: 3.5.22(typescript@5.9.3)
+
   vue-tsc@3.1.2(typescript@5.9.3):
     dependencies:
       '@volar/typescript': 2.4.23
@@ -1220,3 +1348,7 @@ snapshots:
       '@vue/shared': 3.5.22
     optionalDependencies:
       typescript: 5.9.3
+
+  webgl-sdf-generator@1.1.1: {}
+
+  yoga-layout@3.2.1: {}
