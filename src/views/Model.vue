@@ -5,8 +5,9 @@ import { VRButton } from 'three/examples/jsm/webxr/VRButton.js'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { XRControllerModelFactory } from 'three/examples/jsm/webxr/XRControllerModelFactory.js'
 import { VRDebugPanel } from '../utils/VRDebugPanel'
-import { DebugGUI } from '../utils/DebugGUI'
-import { VRDebugGUI } from '../utils/VRDebugGUI'
+import GUI from 'lil-gui'
+import { Lut } from 'three/examples/jsm/math/Lut.js'
+
 
 const container = ref<HTMLDivElement | null>(null);
 let scene: THREE.Scene;
@@ -16,10 +17,105 @@ let controls: OrbitControls;
 let vrPlayerRig: THREE.Group;
 let ground: THREE.Mesh;
 
-let debugGUI: DebugGUI;
-let vrDebugGUI: VRDebugGUI;
 let debugPanel: VRDebugPanel;
+let caeMesh: THREE.Mesh | null = null;
+let caeModelCenter = new THREE.Vector3(0, 0, 0); // CAE 模型中心位置
+let caeViewDistance = 5; // 观看 CAE 模型的合适距离
+let gui: GUI | null = null;
 
+let lut = new Lut();
+
+// 自定义颜色映射
+const ColorMapKeywords = {
+  rainbow: [
+    [0.0, 0x00008f],
+    [0.05, 0x00008f],
+    [0.1, 0x0000c4],
+    [0.15, 0x0000f9],
+    [0.2, 0x002fff],
+    [0.25, 0x0064ff],
+    [0.3, 0x0099ff],
+    [0.35, 0x00ceff],
+    [0.4, 0x03fffc],
+    [0.45, 0x38ffc7],
+    [0.5, 0x6dff92],
+    [0.55, 0xa2ff5d],
+    [0.6, 0xd7ff28],
+    [0.65, 0xfff200],
+    [0.7, 0xffbe00],
+    [0.75, 0xff8900],
+    [0.8, 0xff5400],
+    [0.85, 0xff1f00],
+    [0.9, 0xe90000],
+    [0.95, 0xb40000],
+    [1.0, 0x800000]
+  ],
+  cooltowarm: [
+    [0.0, 0x3c4ec2],
+    [0.2, 0x9bbcff],
+    [0.5, 0xdcdcdc],
+    [0.8, 0xf6a385],
+    [1.0, 0xb40426]
+  ],
+  blackbody: [
+    [0.0, 0x000000],
+    [0.2, 0x780000],
+    [0.5, 0xe63200],
+    [0.8, 0xffff00],
+    [1.0, 0xffffff]
+  ],
+  grayscale: [
+    [0.0, 0x000000],
+    [1.0, 0xffffff]
+  ],
+  water: [
+    [0.0, 0xffffff],
+    [1.0, 0x0066ff]
+  ],
+  water2: [
+    [0.0, 0xffffff],
+    [0.2, 0xbfbfff],
+    [0.5, 0x7f7fff],
+    [0.8, 0x4040ff],
+    [1.0, 0x0000ff]
+  ],
+  wite: [
+    [0.0, 0xffffff],
+    [0.2, 0xbfbfbf],
+    [0.5, 0x7f7f7f],
+    [0.8, 0x404040],
+    [1.0, 0x000000]
+  ]
+};
+
+// 将自定义颜色映射添加到 lut
+Object.entries(ColorMapKeywords).forEach(([name, colormap]) => {
+  lut.addColorMap(name, colormap);
+});
+
+// GUI 参数
+const guiParams = {
+  // CAE 模型控制
+  caeModel: {
+    visible: true,
+    wireframe: false,
+    opacity: 1.0,
+    color: '#4ecdc4',
+    metalness: 0.3,
+    roughness: 0.5,
+  },
+  // 场景控制
+  scene: {
+    backgroundColor: '#1a1a2e',
+    autoRotate: false,
+    rotationSpeed: 1.0,
+  },
+  // 测试物体控制
+  testObjects: {
+    visible: true,
+    animate: true,
+  }
+}
 
 // 动画时钟（用于物体动画）
 const clock = new THREE.Clock()
@@ -69,15 +165,12 @@ function initRenderer() {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.localClippingEnabled = true; // 启用本地裁剪
   container.value.appendChild(renderer.domElement);
   // 启用 VR
   renderer.xr.enabled = true;
   const vrButton = VRButton.createButton(renderer)
   container.value.appendChild(vrButton)
-
-  // 创建两个控制器
-  vrControllers.push(createVRController(0))
-  vrControllers.push(createVRController(1))
 }
 
 function initControls() {
@@ -89,39 +182,161 @@ function initControls() {
   controls.minDistance = 1;
   controls.maxDistance = 100;
   controls.maxPolarAngle = Math.PI / 1.5;
-  controls.target.set(0, 1.6, 0);
+  // 初始目标指向场景中心，CAE 模型加载后会更新
+  controls.target.set(0, 0, 0);
 }
 
 function initVRPlayerRig() {
   vrPlayerRig = new THREE.Group()
   vrPlayerRig.name = 'VRPlayerRig'
-  vrPlayerRig.position.set(0, 0, 0)
+  // 初始位置稍微远一点，面向场景中心
+  vrPlayerRig.position.set(3, 1.6, 3)
   scene.add(vrPlayerRig)
 }
 
-function initDebugGUI() {
-
-  // 创建调试面板
+function initDebugPanel() {
   debugPanel = new VRDebugPanel(scene)
   debugPanel.log('模型场景已启动')
   debugPanel.log('桌面模式: 鼠标旋转视角 / WASD移动 / 空格跳跃 / 左键选择 / 右键抓取')
   debugPanel.log('VR 模式: 扳机选择 / 侧键抓取 / 摇杆移动 / A键跳跃')
+}
 
-  // 创建调试GUI（桌面模式）
-  debugGUI = new DebugGUI(debugPanel, camera)
-  debugPanel.log('GUI调试面板已启动 (按 H 键切换显示)')
+function initGUI() {
+  gui = new GUI({ title: 'CAE 模型控制' })
 
-  // 创建VR 3D GUI（VR模式）
-  vrDebugGUI = new VRDebugGUI(scene, debugPanel, camera)
-  debugPanel.log('VR 3D GUI已就绪 (按 G 键切换显示)')
+  // CAE 模型控制文件夹
+  const caeFolder = gui.addFolder('CAE 模型')
 
-  // 将VR GUI添加到调试面板中进行控制
-  debugGUI.setVRDebugGUI(vrDebugGUI)
+  caeFolder.add(guiParams.caeModel, 'visible').name('显示').onChange((value: boolean) => {
+    if (caeMesh) {
+      caeMesh.visible = value
+      debugPanel.log(`CAE 模型: ${value ? '显示' : '隐藏'}`)
+    }
+  })
+
+  caeFolder.add(guiParams.caeModel, 'wireframe').name('线框模式').onChange((value: boolean) => {
+    if (caeMesh && caeMesh.material) {
+      (caeMesh.material as THREE.MeshStandardMaterial).wireframe = value
+      debugPanel.log(`线框模式: ${value ? '开启' : '关闭'}`)
+    }
+  })
+
+  caeFolder.add(guiParams.caeModel, 'opacity', 0, 1, 0.1).name('透明度').onChange((value: number) => {
+    if (caeMesh && caeMesh.material) {
+      const material = caeMesh.material as THREE.MeshStandardMaterial
+      material.opacity = value
+      material.transparent = value < 1
+      debugPanel.log(`透明度: ${(value * 100).toFixed(0)}%`)
+    }
+  })
+
+  caeFolder.add(guiParams.caeModel, 'metalness', 0, 1, 0.1).name('金属度').onChange((value: number) => {
+    if (caeMesh && caeMesh.material) {
+      (caeMesh.material as THREE.MeshStandardMaterial).metalness = value
+    }
+  })
+
+  caeFolder.add(guiParams.caeModel, 'roughness', 0, 1, 0.1).name('粗糙度').onChange((value: number) => {
+    if (caeMesh && caeMesh.material) {
+      (caeMesh.material as THREE.MeshStandardMaterial).roughness = value
+    }
+  })
+
+  caeFolder.open()
+
+  // 场景控制文件夹
+  const sceneFolder = gui.addFolder('场景控制')
+
+  sceneFolder.addColor(guiParams.scene, 'backgroundColor').name('背景色').onChange((value: string) => {
+    scene.background = new THREE.Color(value)
+  })
+
+  sceneFolder.add(guiParams.scene, 'autoRotate').name('自动旋转').onChange((value: boolean) => {
+    controls.autoRotate = value
+    debugPanel.log(`自动旋转: ${value ? '开启' : '关闭'}`)
+  })
+
+  sceneFolder.add(guiParams.scene, 'rotationSpeed', 0.1, 5, 0.1).name('旋转速度').onChange((value: number) => {
+    controls.autoRotateSpeed = value
+  })
+
+  sceneFolder.open()
+
+  // 测试物体控制
+  const testFolder = gui.addFolder('测试物体')
+
+  testFolder.add(guiParams.testObjects, 'visible').name('显示').onChange((value: boolean) => {
+    interactableObjects.forEach(obj => {
+      if (obj !== caeMesh) {
+        obj.visible = value
+      }
+    })
+    debugPanel.log(`测试物体: ${value ? '显示' : '隐藏'}`)
+  })
+
+  testFolder.add(guiParams.testObjects, 'animate').name('动画').onChange((value: boolean) => {
+    debugPanel.log(`测试物体动画: ${value ? '开启' : '关闭'}`)
+  })
+
+  testFolder.close()
+
+  // 添加重置按钮
+  gui.add({
+    resetCamera: () => {
+      if (caeMesh) {
+        camera.position.set(
+          caeViewDistance * 0.7,
+          caeViewDistance * 0.5,
+          caeViewDistance * 0.7
+        )
+        camera.lookAt(caeModelCenter)
+        controls.target.copy(caeModelCenter)
+        controls.update()
+        debugPanel.log('相机已重置')
+      }
+    }
+  }, 'resetCamera').name('重置相机')
+
+  // 添加模型信息显示
+  const infoFolder = gui.addFolder('模型信息')
+  infoFolder.close()
+
+  debugPanel.log('✓ GUI 控制面板已加载')
+}
+
+// 更新 GUI 中的模型信息
+function updateGUIModelInfo(name: string, vertices: number, faces: number, size: THREE.Vector3) {
+  if (!gui) return
+
+  const infoFolder = gui.folders.find(f => f._title === '模型信息')
+  if (!infoFolder) return
+
+  // 清除旧的控制器
+  infoFolder.controllers.forEach(c => c.destroy())
+
+  // 添加只读信息
+  const info = {
+    name: name,
+    vertices: vertices.toLocaleString(),
+    faces: faces.toLocaleString(),
+    sizeX: size.x.toFixed(2),
+    sizeY: size.y.toFixed(2),
+    sizeZ: size.z.toFixed(2),
+  }
+
+  infoFolder.add(info, 'name').name('模型名称').disable()
+  infoFolder.add(info, 'vertices').name('顶点数').disable()
+  infoFolder.add(info, 'faces').name('面数').disable()
+  infoFolder.add(info, 'sizeX').name('尺寸 X').disable()
+  infoFolder.add(info, 'sizeY').name('尺寸 Y').disable()
+  infoFolder.add(info, 'sizeZ').name('尺寸 Z').disable()
 }
 
 const interactableObjects: THREE.Object3D[] = []
 
 function initObject() {
+  // 暂时隐藏测试物体，让 CAE 模型成为焦点
+
   // 添加立方体
   const cubeGeometry = new THREE.BoxGeometry(0.5, 0.5, 0.5)
   const cubeMaterial = new THREE.MeshStandardMaterial({
@@ -193,6 +408,175 @@ function initObject() {
   interactableObjects.push(cylinder)
 }
 
+
+interface Task {
+  name?: string;
+  val?: Array<number>;
+  max?: number;
+  min?: number;
+  key?: string;
+  nameKey?: string;
+  valIsArray?: boolean;
+  unit?: string;
+}
+
+const newTaskValues: Array<{
+  value: Array<Task>;
+  name: string;
+  nameKey: string;
+  unit: string;
+  valIsArray: boolean;
+}> = [];
+
+// 加载 CAE 模型数据
+async function loadCAEModel() {
+  try {
+    debugPanel.log('开始加载 CAE 模型...')
+
+    // 加载节点数据和数值数据
+    const [nodeResponse, valueResponse] = await Promise.all([
+      fetch('/src/assets/objects/470/FNode.json').then(r => r.json()),
+      fetch('/src/assets/objects/470/FValue.json').then(r => r.json())
+    ])
+
+    const nodeData = nodeResponse;
+    const valueData: Array<{
+      name: string;
+      key: string;
+      times: Record<string, Array<number>>;
+      unit: string;
+    }> = valueResponse;
+
+    mapTaskData(valueData, newTaskValues);
+
+    // 创建几何体
+    const geometry = new THREE.BufferGeometry();
+
+    // 设置顶点位置
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(nodeData.nodes, 3))
+
+    // 设置索引
+    geometry.setIndex(new THREE.Uint32BufferAttribute(nodeData.indexs, 1))
+
+    const colors = [];
+    for (let i = 0, n = geometry.attributes.position?.count || 0; i < n; ++i) {
+      colors.push(1, 1, 1);
+    }
+    geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+
+    const data = newTaskValues[0]?.value || [];
+    // 设置压力属性（用于后续处理）
+    geometry.setAttribute('pressure', new THREE.Float32BufferAttribute(data[0]?.val || [], 1))
+
+    // 计算法线
+    geometry.computeVertexNormals()
+
+
+    const pressures = geometry.attributes.pressure;
+    const newColors = geometry.attributes.color || new THREE.Float32BufferAttribute([], 3);
+
+    lut.setColorMap('water');
+    // 遍历所有顶点，根据压力值设置颜色
+    for (let i = 0; i < pressures!.array.length; i++) {
+      const colorValue = pressures?.array[i];
+      const color = lut.getColor(colorValue || 0);
+
+      if (color === undefined) {
+        console.log('Unable to determine color for value:', colorValue);
+      } else {
+        newColors.setXYZ(i, color.r, color.g, color.b);
+      }
+    }
+
+    newColors.needsUpdate = true;
+
+
+    const planes = [
+      new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0), // X 轴平面
+      new THREE.Plane(new THREE.Vector3(0, -1, 0), 0), // Y 轴平面
+      new THREE.Plane(new THREE.Vector3(0, 0, -1), 0) // Z 轴平面
+    ];
+    // 创建材质（简单的标准材质）
+    const material = new THREE.MeshStandardMaterial({
+      side: THREE.DoubleSide, // 双面渲染
+      metalness: 0, // 金属度
+      roughness: 0, // 粗糙度
+      vertexColors: true, // 使用顶点颜色
+      // clipping: true, // 启用裁剪
+      // clippingPlanes: planes, // 裁剪平面数组
+      // renderOrder: 0, // 渲染顺序
+      // uniforms: {
+      //   iTime: { value: 0.5 }
+      // }
+    })
+
+    // 创建网格
+    caeMesh = new THREE.Mesh(geometry, material)
+    caeMesh.castShadow = true
+    caeMesh.receiveShadow = true
+    caeMesh.name = 'CAE_Model'
+
+    // 计算包围盒并调整位置
+    geometry.computeBoundingBox()
+    const bbox = geometry.boundingBox!
+    const center = new THREE.Vector3()
+    bbox.getCenter(center)
+
+    // 根据模型大小调整缩放
+    const size = new THREE.Vector3()
+    bbox.getSize(size)
+    const maxDim = Math.max(size.x, size.y, size.z)
+    const scale = 2 / maxDim // 缩放到合适大小
+    caeMesh.scale.setScalar(scale)
+
+    // 将模型放到场景中心 (0, 0, 0)，并将其几何中心对齐到世界坐标原点
+    caeMesh.position.set(-center.x * scale, -center.y * scale, -center.z * scale)
+
+    scene.add(caeMesh)
+    interactableObjects.push(caeMesh)
+
+    // 计算缩放后的包围盒大小
+    const scaledSize = size.multiplyScalar(scale)
+    const distance = Math.max(scaledSize.x, scaledSize.y, scaledSize.z) * 2
+
+    // 保存模型信息供 VR 模式使用
+    caeModelCenter.set(0, 0, 0) // 模型中心在世界坐标原点
+    caeViewDistance = distance
+
+    // 调整地面位置到模型下方
+    const modelBottom = bbox.min.y * scale - center.y * scale
+    ground.position.y = modelBottom - 0.1 // 稍微留一点间隙
+
+    // 更新 VR 地面高度（玩家站在地面上，眼睛高度 1.6m）
+    groundLevel = ground.position.y + 1.6
+
+    // 调整相机位置以观看整个模型
+    camera.position.set(distance * 0.7, distance * 0.5, distance * 0.7)
+    camera.lookAt(caeModelCenter)
+
+    // 更新控制器目标到模型中心
+    controls.target.copy(caeModelCenter)
+    controls.update()
+
+    debugPanel.log(`✓ CAE 模型加载成功 (${valueData[0].name})`)
+    debugPanel.log(`模型尺寸: ${scaledSize.x.toFixed(2)} x ${scaledSize.y.toFixed(2)} x ${scaledSize.z.toFixed(2)}`)
+    debugPanel.log('桌面: 鼠标拖动旋转查看 / VR: 点击"Enter VR"按钮进入')
+
+    // 更新 GUI 标题和模型信息
+    if (gui && geometry.attributes.position) {
+      gui.title(`CAE 模型控制 - ${valueData[0].name}`)
+
+      const vertexCount = geometry.attributes.position.count
+      const faceCount = geometry.index ? geometry.index.count / 3 : vertexCount / 3
+      updateGUIModelInfo(valueData[0].name, vertexCount, faceCount, scaledSize)
+    }
+
+  } catch (error) {
+    console.error('加载 CAE 模型失败:', error)
+    debugPanel.log('✗ CAE 模型加载失败')
+  }
+}
+
 let highlightedObject: THREE.Object3D | null = null;
 
 const originalMaterials = new Map<THREE.Object3D, THREE.Material>();
@@ -249,7 +633,7 @@ let grabHand: 'vr-left' | 'vr-right' | 'desktop' | null = null
 let verticalVelocity = 0
 const gravity = -0.008
 const jumpStrength = 0.15
-const groundLevel = 1.6 // VR 眼睛高度
+let groundLevel = 0.6 // VR 眼睛高度，会在模型加载后更新
 
 const gameLogic = {
   // 选择开始
@@ -425,10 +809,6 @@ function moveControllersToParent(parent: THREE.Object3D) {
 
 // VR 控制器事件处理函数
 function handleVRSelectStart(controller: THREE.Group, index: number) {
-  // 先尝试与VR GUI交互
-  vrDebugGUI.handleControllerSelect(controller)
-
-  // 如果没有交互到GUI，继续游戏逻辑
   const hand = index === 0 ? 'left' : 'right'
   const pos = new THREE.Vector3().setFromMatrixPosition(controller.matrixWorld)
   const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(controller.quaternion)
@@ -436,9 +816,6 @@ function handleVRSelectStart(controller: THREE.Group, index: number) {
 }
 
 function handleVRSelectEnd(_controller: THREE.Group, index: number) {
-  // 释放VR GUI拖拽
-  vrDebugGUI.handleControllerRelease()
-
   const hand = index === 0 ? 'left' : 'right'
   gameLogic.handleSelectEnd(`vr-${hand}`)
 }
@@ -456,109 +833,7 @@ function handleVRSqueezeEnd(controller: THREE.Group, index: number) {
 }
 //#endregion
 
-
-//#region 键盘操作
-
-// ========== 输入控制器设置 ==========
-
 const isVRMode = ref(false)
-const inputState = {
-  cursorPosition: new THREE.Vector3(),
-  cursorDirection: new THREE.Vector3(),
-  moveInput: new THREE.Vector2(),
-}
-
-const raycaster = new THREE.Raycaster()
-const mouse = new THREE.Vector2()
-const keysPressed = new Set<string>()
-
-// 鼠标移动
-function onMouseMove(event: MouseEvent) {
-  if (isVRMode.value) return
-  const rect = renderer.domElement.getBoundingClientRect()
-  mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1
-  mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1
-  raycaster.setFromCamera(mouse, camera)
-  inputState.cursorPosition.copy(raycaster.ray.origin)
-  inputState.cursorDirection.copy(raycaster.ray.direction)
-}
-
-// ========== 桌面输入事件处理 ==========
-
-let isMouseSelecting = false
-let isMouseGrabbing = false
-
-function onMouseDown(event: MouseEvent) {
-  if (isVRMode.value) return
-  if (event.button === 0) { // 左键 = Select
-    isMouseSelecting = true
-    gameLogic.handleSelectStart(
-      inputState.cursorPosition.clone(),
-      inputState.cursorDirection.clone(),
-      'desktop'
-    )
-  } else if (event.button === 2) { // 右键 = Grab
-    isMouseGrabbing = true
-    gameLogic.handleGrabStart(
-      inputState.cursorPosition.clone(),
-      inputState.cursorDirection.clone(),
-      'right'
-    )
-  }
-}
-
-function onMouseUp(event: MouseEvent) {
-  if (isVRMode.value) return
-  if (event.button === 0) {
-    isMouseSelecting = false
-    gameLogic.handleSelectEnd('desktop')
-  } else if (event.button === 2) {
-    isMouseGrabbing = false
-    gameLogic.handleGrabEnd('desktop')
-  }
-}
-
-function onKeyDown(event: KeyboardEvent) {
-  if (isVRMode.value) return
-  const key = event.key.toLowerCase()
-  if (key === ' ' && !keysPressed.has(' ')) {
-    gameLogic.handleJump()
-  }
-  keysPressed.add(key)
-}
-
-function onKeyUp(event: KeyboardEvent) {
-  if (isVRMode.value) return
-  keysPressed.delete(event.key.toLowerCase())
-}
-
-function onContextMenu(event: Event) {
-  event.preventDefault()
-}
-
-// 更新桌面移动输入
-function updateDesktopInput() {
-  if (isVRMode.value) return
-  const moveX = (keysPressed.has('d') ? 1 : 0) + (keysPressed.has('a') ? -1 : 0)
-  const moveY = (keysPressed.has('w') ? 1 : 0) + (keysPressed.has('s') ? -1 : 0)
-  if (moveX !== 0 || moveY !== 0) {
-    inputState.moveInput.set(moveX, moveY)
-    gameLogic.handleMove(inputState.moveInput)
-  }
-}
-window.addEventListener('keydown', onKeyDown)
-window.addEventListener('keyup', onKeyUp)
-
-// 添加键盘快捷键切换GUI
-function handleKeyPress(e: KeyboardEvent) {
-  if (e.key === 'h' || e.key === 'H') {
-    debugGUI.toggle()
-  } else if (e.key === 'g' || e.key === 'G') {
-    vrDebugGUI.toggle()
-  }
-}
-//#endregion
-
 
 // 按键状态跟踪
 const prevButtonStates: Map<string, boolean[]> = new Map()
@@ -582,6 +857,18 @@ function animationLoop() {
     controls.update()
   }
 
+  // 让物体自动旋转（除非被抓取或是 CAE 模型）
+  if (guiParams.testObjects.animate) {
+    interactableObjects.forEach((obj, index) => {
+      if (obj !== grabbedObject && obj !== caeMesh) {
+        obj.rotation.y += deltaTime * 0.5
+        obj.rotation.x += deltaTime * 0.2
+        // 添加上下浮动效果
+        obj.position.y = 0.3 + Math.sin(elapsedTime + index * 1.2) * 0.1
+      }
+    })
+  }
+
   // 应用重力和垂直速度
   const target = camera.parent || camera
   verticalVelocity += gravity
@@ -593,74 +880,53 @@ function animationLoop() {
     verticalVelocity = 0
   }
 
-  // 桌面模式：处理键盘输入
-  if (!isVRMode.value) {
-    updateDesktopInput()
-
-    // 桌面模式：移动抓取的物体
-    if (grabbedObject && grabHand === 'desktop') {
-      const pos = inputState.cursorPosition
-      const dir = inputState.cursorDirection.clone()
-      // 将物体放在射线前方固定距离
-      grabbedObject.position.copy(pos).add(dir.multiplyScalar(2))
-    }
-  }
   // VR 模式：处理摇杆输入和GUI交互
-  else {
-    // 监听左右手柄按键
-    ;[0, 1].forEach(index => {
-      const hand = index === 0 ? 'Left' : 'Right'
-      const gamepad = getGamepadState(index)
+  // 监听左右手柄按键
+  [0, 1].forEach(index => {
+    const hand = index === 0 ? 'Left' : 'Right'
+    const gamepad = getGamepadState(index)
 
-      if (gamepad) {
-        const prevState = prevButtonStates.get(hand) || []
+    if (gamepad) {
+      const prevState = prevButtonStates.get(hand) || []
 
-        // 检测每个按键变化
-        gamepad.buttons.forEach((button, btnIndex) => {
-          const wasPressed = prevState[btnIndex] || false
-          const isPressed = button.pressed
+      // 检测每个按键变化
+      gamepad.buttons.forEach((button, btnIndex) => {
+        const wasPressed = prevState[btnIndex] || false
+        const isPressed = button.pressed
 
-          // 按下事件
-          if (isPressed && !wasPressed) {
-            const btnName = buttonNames[btnIndex as keyof typeof buttonNames] || `Button${btnIndex}`
-            debugPanel.log(`[${hand}] ${btnName} 按下 ${btnIndex}`)
+        // 按下事件
+        if (isPressed && !wasPressed) {
+          const btnName = buttonNames[btnIndex as keyof typeof buttonNames] || `Button${btnIndex}`
+          debugPanel.log(`[${hand}] ${btnName} 按下 ${btnIndex}`)
 
-            // A键跳跃（右手按钮4）
-            if (hand === 'Right' && btnIndex === 4) {
-              gameLogic.handleJump()
-            }
-          }
-          // 释放事件
-          else if (!isPressed && wasPressed) {
-            const btnName = buttonNames[btnIndex as keyof typeof buttonNames] || `Button${btnIndex}`
-            debugPanel.log(`[${hand}] ${btnName} 释放 ${btnIndex}`)
-          }
-        })
-
-        // 保存当前状态
-        prevButtonStates.set(hand, gamepad.buttons.map(b => b.pressed))
-
-        // 摇杆移动（右手）
-        if (index === 1) {
-          const deadzone = 0.15
-          if (Math.abs(gamepad.thumbstickX) > deadzone || Math.abs(gamepad.thumbstickY) > deadzone) {
-            gameLogic.handleMove(new THREE.Vector2(gamepad.thumbstickX, gamepad.thumbstickY))
+          // A键跳跃（右手按钮4）
+          if (hand === 'Right' && btnIndex === 4) {
+            gameLogic.handleJump()
           }
         }
-      }
-    })
+        // 释放事件
+        else if (!isPressed && wasPressed) {
+          const btnName = buttonNames[btnIndex as keyof typeof buttonNames] || `Button${btnIndex}`
+          debugPanel.log(`[${hand}] ${btnName} 释放 ${btnIndex}`)
+        }
+      })
 
-    // VR GUI交互：悬停高亮和拖拽更新
-    vrControllers.forEach(({ controller }) => {
-      vrDebugGUI.handleControllerHover(controller)
-      vrDebugGUI.handleControllerMove(controller)
-    })
-  }
+      // 保存当前状态
+      prevButtonStates.set(hand, gamepad.buttons.map(b => b.pressed))
+
+      // 摇杆移动（右手）
+      if (index === 1) {
+        const deadzone = 0.15
+        if (Math.abs(gamepad.thumbstickX) > deadzone || Math.abs(gamepad.thumbstickY) > deadzone) {
+          gameLogic.handleMove(new THREE.Vector2(gamepad.thumbstickX, gamepad.thumbstickY))
+        }
+      }
+    }
+  })
 
   // 渲染场景
   renderer.render(scene, camera)
 }
-
 
 // 清理函数
 function animationCleanup() {
@@ -669,17 +935,6 @@ function animationCleanup() {
 
   // 移除事件监听
   window.removeEventListener('resize', handleResize)
-  window.removeEventListener('keydown', handleKeyPress)
-  window.removeEventListener('keydown', onKeyDown)
-  window.removeEventListener('keyup', onKeyUp)
-  renderer.domElement.removeEventListener('mousemove', onMouseMove)
-  renderer.domElement.removeEventListener('mousedown', onMouseDown)
-  renderer.domElement.removeEventListener('mouseup', onMouseUp)
-  renderer.domElement.removeEventListener('contextmenu', onContextMenu)
-
-  // 清理调试工具
-  debugGUI.destroy()
-  vrDebugGUI.dispose()
 
   // 清理几何体和材质
   interactableObjects.forEach(obj => {
@@ -709,9 +964,24 @@ function animationCleanup() {
     ground.material.dispose()
   }
 
+  // 清理 CAE 模型
+  if (caeMesh) {
+    caeMesh.geometry.dispose()
+    if (Array.isArray(caeMesh.material)) {
+      caeMesh.material.forEach(m => m.dispose())
+    } else {
+      caeMesh.material.dispose()
+    }
+  }
+
   // 清理控制器
   if (controls) {
     controls.dispose()
+  }
+
+  // 清理 GUI
+  if (gui) {
+    gui.destroy()
   }
 
   // 清理渲染器
@@ -726,6 +996,63 @@ function animationCleanup() {
   }
 }
 
+function mapTaskData(taskvals: Array<{
+  name?: string;
+  key?: string;
+  times?: Record<string, Array<number>>;
+  unit?: string;
+}>, newTaskValues: Array<{
+  value: Array<Task>;
+  name: string;
+  nameKey: string;
+  unit: string;
+  valIsArray: boolean;
+}>) {
+  for (const task of taskvals) {
+    const newTaskList = [];
+    let name = '';
+    let unit = '';
+    let nameKey = '';
+    let valIsArray = false;
+
+    // 遍历每个时间步
+    for (const key in task.times) {
+      const newTask: Task = {};
+      if (Object.prototype.hasOwnProperty.call(task.times, key)) {
+        const val = task.times[key];
+        name = newTask.name = task.name || '';
+        unit = newTask.unit = task.unit || '';
+        nameKey = newTask.nameKey = task.key || '';
+        newTask.key = key;
+        newTask.val = val || [];
+
+        // 检查数据是否为向量数组（如速度[vx, vy, vz]）
+        if (val && val.length > 0) {
+          valIsArray = newTask.valIsArray = Array.isArray(val[0]);
+        }
+
+        // 如果是向量数据，计算其模长  eslint-disable-next-line
+        if (valIsArray) {
+          for (const [index, i] of (val as unknown as Array<Array<number>>).entries()) {
+            // 计算三维向量的模: sqrt(x² + y² + z²)
+            const data = Math.hypot(i[0] || 0, i[1] || 0, i[2] || 0);
+            val![index] = data;
+          }
+        }
+      }
+      newTaskList.push(newTask);
+    }
+
+    newTaskValues.push({
+      name,
+      unit,
+      nameKey,
+      value: newTaskList,
+      valIsArray
+    });
+  }
+}
+
 
 onMounted(() => {
   if (!container.value) return
@@ -737,25 +1064,17 @@ onMounted(() => {
   initControls();
   initVRPlayerRig();
   initObject();
-  initDebugGUI();
+  initDebugPanel();
+  initGUI();
 
-
-
-  // 监听桌面输入
-  renderer.domElement.addEventListener('mousemove', onMouseMove)
-  renderer.domElement.addEventListener('mousedown', onMouseDown)
-  renderer.domElement.addEventListener('mouseup', onMouseUp)
-  renderer.domElement.addEventListener('contextmenu', onContextMenu)
+  // 加载 CAE 模型
+  loadCAEModel();
 
   window.addEventListener('resize', handleResize)
-  window.addEventListener('keydown', handleKeyPress)
 
-  // ========== VR 控制器设置 ==========
-
-
-
-
-  // ========== VR 会话监听 ==========
+  // 创建两个控制器
+  vrControllers.push(createVRController(0))
+  vrControllers.push(createVRController(1))
 
   // 监听 VR 会话变化
   renderer.xr.addEventListener('sessionstart', () => {
@@ -766,12 +1085,35 @@ onMounted(() => {
     // 禁用 OrbitControls
     controls.enabled = false
 
+    // 隐藏 GUI（VR 模式下不需要）
+    if (gui) {
+      gui.hide()
+    }
+
     // 进入 VR：将相机从场景移到 rig 中
     const worldPos = new THREE.Vector3()
     camera.getWorldPosition(worldPos)
 
     scene.remove(camera)
-    vrPlayerRig.position.copy(worldPos)
+
+    // 如果 CAE 模型已加载，将 VR 玩家定位到合适的观看位置
+    if (caeMesh) {
+      // 计算从模型中心向外看的位置（与桌面相机类似的角度）
+      const viewPos = new THREE.Vector3(
+        caeModelCenter.x + caeViewDistance * 0.7,
+        caeModelCenter.y + caeViewDistance * 0.3, // VR 中稍微低一点，更自然
+        caeModelCenter.z + caeViewDistance * 0.7
+      )
+
+      // 但要确保玩家站在地面上
+      viewPos.y = Math.max(viewPos.y, groundLevel)
+
+      vrPlayerRig.position.copy(viewPos)
+      debugPanel.log(`VR 玩家位置: ${viewPos.x.toFixed(1)}, ${viewPos.y.toFixed(1)}, ${viewPos.z.toFixed(1)}`)
+    } else {
+      vrPlayerRig.position.copy(worldPos)
+    }
+
     vrPlayerRig.add(camera)
 
     // 相机在 rig 内的局部位置归零（头显会控制相对位置）
@@ -780,13 +1122,6 @@ onMounted(() => {
     // 将控制器移动到 VR Player Rig
     moveControllersToParent(vrPlayerRig)
     debugPanel.log('手柄已绑定到玩家')
-
-    // 将VR GUI面板也移动到 VR Player Rig
-    const vrGuiPanel = vrDebugGUI.getPanel()
-    if (vrGuiPanel.parent === camera) {
-      vrPlayerRig.add(vrGuiPanel)
-      debugPanel.log('VR GUI已绑定到玩家')
-    }
   })
 
   renderer.xr.addEventListener('sessionend', () => {
@@ -795,6 +1130,11 @@ onMounted(() => {
 
     // 重新启用 OrbitControls
     controls.enabled = true
+
+    // 显示 GUI
+    if (gui) {
+      gui.show()
+    }
 
     // 退出 VR：将相机从 rig 移回场景
     const worldPos = new THREE.Vector3()
@@ -809,13 +1149,6 @@ onMounted(() => {
 
     // 将控制器移回场景
     moveControllersToParent(scene)
-
-    // 将VR GUI面板移回camera
-    const vrGuiPanel = vrDebugGUI.getPanel()
-    if (vrGuiPanel.parent && vrGuiPanel.parent !== camera) {
-      camera.add(vrGuiPanel)
-      debugPanel.log('VR GUI已移回摄像头')
-    }
   })
 
   // 主动画循环

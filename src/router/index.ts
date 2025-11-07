@@ -26,6 +26,12 @@ const routes: RouteRecordRaw[] = [
     component: () => import("../views/Model.vue"),
     meta: { title: "模型文件" },
   },
+  {
+    path: "/old-model",
+    name: "OldModel",
+    component: () => import("../views/oldModel.vue"),
+    meta: { title: "旧模型" },
+  }
 ];
 
 const router = createRouter({
