@@ -1,29 +1,50 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
 import * as THREE from 'three'
-import { VRButton } from 'three/examples/jsm/webxr/VRButton.js'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import { XRControllerModelFactory } from 'three/examples/jsm/webxr/XRControllerModelFactory.js'
 import { VRDebugPanel } from '../utils/VRDebugPanel'
-import GUI from 'lil-gui'
+import { VRManager } from '../utils/VRManager'
+import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 import { Lut } from 'three/examples/jsm/math/Lut.js'
+import { HTMLMesh } from 'three/examples/jsm/interactive/HTMLMesh.js'
+import { InteractiveGroup } from 'three/examples/jsm/interactive/InteractiveGroup.js'
 
 
 const container = ref<HTMLDivElement | null>(null);
+const lutRef = ref<HTMLDivElement | null>(null);
+const shuzhiRef = ref<HTMLDivElement | null>(null);
+const showValuePopover = ref(false);
+const pointValue = ref(0);
+const mouseLocation = { x: 0, y: 0 };
+const selectedColorMap = ref('water');
+
 let scene: THREE.Scene;
 let camera: THREE.PerspectiveCamera;
 let renderer: THREE.WebGLRenderer;
+
 let controls: OrbitControls;
-let vrPlayerRig: THREE.Group;
 let ground: THREE.Mesh;
 
 let debugPanel: VRDebugPanel;
+let vrManager: VRManager;
 let caeMesh: THREE.Mesh | null = null;
 let caeModelCenter = new THREE.Vector3(0, 0, 0); // CAE 模型中心位置
 let caeViewDistance = 5; // 观看 CAE 模型的合适距离
 let gui: GUI | null = null;
+let interactiveGroup: InteractiveGroup | null = null;
 
 let lut = new Lut();
+let planes: THREE.Plane[] = [];
+let planeHelpers: THREE.PlaneHelper[] = [];
+let planeObjects: THREE.Mesh[] = [];
+let maxval: number = 1;
+let minval: number = 0;
+
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+let setValueTimeout: number;
+let animationFrameId: number | null = null;
+let colorMapController: any;
 
 // 自定义颜色映射
 const ColorMapKeywords = {
@@ -103,6 +124,7 @@ const guiParams = {
     color: '#4ecdc4',
     metalness: 0.3,
     roughness: 0.5,
+    colorMap: 'water',
   },
   // 场景控制
   scene: {
@@ -114,7 +136,21 @@ const guiParams = {
   testObjects: {
     visible: true,
     animate: true,
-  }
+  },
+  // 裁剪平面
+  planeX: { scope: 0, plan: false },
+  planeY: { scope: 0, plan: false },
+  planeZ: { scope: 0, plan: false },
+  // 时间帧控制
+  currentFrame: 0,
+  frames: [] as string[],
+  // 数据类型和时间帧
+  typenode: '',
+  frame: '',
+  animate: false,
+  segmentation: false,
+  nodes: {} as Record<string, Array<Task>>,
+  nownode: [] as Array<Task>,
 }
 
 // 动画时钟（用于物体动画）
@@ -136,6 +172,48 @@ function initSceneAndLightAndGround() {
   directionalLight.shadow.mapSize.height = 2048
   scene.add(directionalLight)
 
+  // 初始化裁剪平面
+  planes = [
+    new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0), // X 轴平面
+    new THREE.Plane(new THREE.Vector3(0, -1, 0), 0), // Y 轴平面
+    new THREE.Plane(new THREE.Vector3(0, 0, -1), 0)  // Z 轴平面
+  ];
+
+  // 添加平面辅助器
+  planeHelpers = planes.map(p => new THREE.PlaneHelper(p, 20, 0xffffff));
+  planeHelpers.forEach(ph => {
+    ph.visible = false;
+    scene.add(ph);
+  });
+
+  // 添加剖切平面对象（使用 stencil buffer）
+  planeObjects = [];
+  const planeGeom = new THREE.PlaneGeometry(4, 4);
+  for (let i = 0; i < 3; i++) {
+    const poGroup = new THREE.Group();
+    const plane = planes[i];
+    const planeMat = new THREE.MeshStandardMaterial({
+      color: 0xe91e63,
+      metalness: 0.1,
+      roughness: 0.75,
+      clippingPlanes: planes.filter(p => p !== plane),
+      stencilWrite: true,
+      stencilRef: 0,
+      stencilFunc: THREE.NotEqualStencilFunc,
+      stencilFail: THREE.ReplaceStencilOp,
+      stencilZFail: THREE.ReplaceStencilOp,
+      stencilZPass: THREE.ReplaceStencilOp
+    });
+    planeMat.visible = false;
+    const po = new THREE.Mesh(planeGeom, planeMat);
+    po.onAfterRender = function (renderer) {
+      renderer.clearStencil();
+    };
+    po.renderOrder = i + 1.1;
+    poGroup.add(po);
+    planeObjects.push(po);
+    scene.add(poGroup);
+  }
 
   // 添加地面
   const groundGeometry = new THREE.PlaneGeometry(20, 20)
@@ -166,11 +244,9 @@ function initRenderer() {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.localClippingEnabled = true; // 启用本地裁剪
+  renderer.autoClear = false; // 用于 stencil buffer
   container.value.appendChild(renderer.domElement);
-  // 启用 VR
-  renderer.xr.enabled = true;
-  const vrButton = VRButton.createButton(renderer)
-  container.value.appendChild(vrButton)
+
 }
 
 function initControls() {
@@ -186,13 +262,6 @@ function initControls() {
   controls.target.set(0, 0, 0);
 }
 
-function initVRPlayerRig() {
-  vrPlayerRig = new THREE.Group()
-  vrPlayerRig.name = 'VRPlayerRig'
-  // 初始位置稍微远一点，面向场景中心
-  vrPlayerRig.position.set(3, 1.6, 3)
-  scene.add(vrPlayerRig)
-}
 
 function initDebugPanel() {
   debugPanel = new VRDebugPanel(scene)
@@ -244,6 +313,75 @@ function initGUI() {
 
   caeFolder.open()
 
+  // 裁剪平面控制（加载模型后会更新范围）
+  const planeXFolder = gui.addFolder('X 轴裁剪')
+  planeXFolder.add(guiParams.planeX, 'plan').name('显示面板').onChange((v: boolean) => {
+    if (planeHelpers[0]) planeHelpers[0].visible = v
+  })
+  planeXFolder.add(guiParams.planeX, 'scope', -10, 10, 0.01).name('裁剪位置').onChange((d: number) => {
+    if (planes[0]) planes[0].constant = d
+  })
+  planeXFolder.close()
+
+  const planeYFolder = gui.addFolder('Y 轴裁剪')
+  planeYFolder.add(guiParams.planeY, 'plan').name('显示面板').onChange((v: boolean) => {
+    if (planeHelpers[1]) planeHelpers[1].visible = v
+  })
+  planeYFolder.add(guiParams.planeY, 'scope', -10, 10, 0.01).name('裁剪位置').onChange((d: number) => {
+    if (planes[1]) planes[1].constant = d
+  })
+  planeYFolder.close()
+
+  const planeZFolder = gui.addFolder('Z 轴裁剪')
+  planeZFolder.add(guiParams.planeZ, 'plan').name('显示面板').onChange((v: boolean) => {
+    if (planeHelpers[2]) planeHelpers[2].visible = v
+  })
+  planeZFolder.add(guiParams.planeZ, 'scope', -10, 10, 0.01).name('裁剪位置').onChange((d: number) => {
+    if (planes[2]) planes[2].constant = d
+  })
+  planeZFolder.close()
+
+  // 动画和特效控制
+  gui.add(guiParams, 'animate').name('动画播放').onChange((value: boolean) => {
+    if (value) {
+      playAnimation()
+    } else {
+      stopAnimation()
+    }
+    debugPanel.log(`动画: ${value ? '播放' : '停止'}`)
+  })
+
+  gui.add(guiParams.scene, 'autoRotate').name('自动旋转').onChange((value: boolean) => {
+    controls.autoRotate = value
+    debugPanel.log(`自动旋转: ${value ? '开启' : '关闭'}`)
+  })
+
+  gui.add(guiParams, 'segmentation').name('分割模式').onChange((value: boolean) => {
+    if (caeMesh && caeMesh.material) {
+      (caeMesh.material as any).ribbon = value
+      guiParams.caeModel.colorMap = 'grayscale'
+      updateColors()
+      if (colorMapController) {
+        colorMapController.updateDisplay()
+      }
+      debugPanel.log(`分割模式: ${value ? '开启' : '关闭'}`)
+    }
+  })
+
+  // 颜色映射选择
+  colorMapController = gui.add(guiParams.caeModel, 'colorMap', [
+    'water',
+    'water2',
+    'rainbow',
+    'cooltowarm',
+    'blackbody',
+    'grayscale',
+    'wite'
+  ]).name('颜色映射').onChange(() => {
+    updateColors()
+    debugPanel.log(`颜色映射: ${guiParams.caeModel.colorMap}`)
+  })
+
   // 场景控制文件夹
   const sceneFolder = gui.addFolder('场景控制')
 
@@ -251,34 +389,29 @@ function initGUI() {
     scene.background = new THREE.Color(value)
   })
 
-  sceneFolder.add(guiParams.scene, 'autoRotate').name('自动旋转').onChange((value: boolean) => {
-    controls.autoRotate = value
-    debugPanel.log(`自动旋转: ${value ? '开启' : '关闭'}`)
-  })
-
   sceneFolder.add(guiParams.scene, 'rotationSpeed', 0.1, 5, 0.1).name('旋转速度').onChange((value: number) => {
     controls.autoRotateSpeed = value
   })
 
-  sceneFolder.open()
+  sceneFolder.close()
 
-  // 测试物体控制
-  const testFolder = gui.addFolder('测试物体')
+  // // 测试物体控制
+  // const testFolder = gui.addFolder('测试物体')
 
-  testFolder.add(guiParams.testObjects, 'visible').name('显示').onChange((value: boolean) => {
-    interactableObjects.forEach(obj => {
-      if (obj !== caeMesh) {
-        obj.visible = value
-      }
-    })
-    debugPanel.log(`测试物体: ${value ? '显示' : '隐藏'}`)
-  })
+  // testFolder.add(guiParams.testObjects, 'visible').name('显示').onChange((value: boolean) => {
+  //   interactableObjects.forEach(obj => {
+  //     if (obj !== caeMesh) {
+  //       obj.visible = value
+  //     }
+  //   })
+  //   debugPanel.log(`测试物体: ${value ? '显示' : '隐藏'}`)
+  // })
 
-  testFolder.add(guiParams.testObjects, 'animate').name('动画').onChange((value: boolean) => {
-    debugPanel.log(`测试物体动画: ${value ? '开启' : '关闭'}`)
-  })
+  // testFolder.add(guiParams.testObjects, 'animate').name('动画').onChange((value: boolean) => {
+  //   debugPanel.log(`测试物体动画: ${value ? '开启' : '关闭'}`)
+  // })
 
-  testFolder.close()
+  // testFolder.close()
 
   // 添加重置按钮
   gui.add({
@@ -302,6 +435,44 @@ function initGUI() {
   infoFolder.close()
 
   debugPanel.log('✓ GUI 控制面板已加载')
+}
+
+// 初始化CSS3D GUI - 使用lil-gui的domElement
+function initCSS3DGUI() {
+  if (!gui || !gui.domElement) {
+    console.error('GUI 未初始化');
+    return;
+  }
+
+  // 隐藏原始DOM元素
+  gui.domElement.style.visibility = 'hidden';
+
+  // 创建 InteractiveGroup
+  interactiveGroup = new InteractiveGroup();
+  interactiveGroup.listenToPointerEvents(renderer, camera);
+
+  // 如果VR管理器存在，监听VR控制器事件
+  if (vrManager) {
+    const controller1 = renderer.xr.getController(0);
+    const controller2 = renderer.xr.getController(1);
+    if (controller1) interactiveGroup.listenToXRControllerEvents(controller1);
+    if (controller2) interactiveGroup.listenToXRControllerEvents(controller2);
+  }
+
+  scene.add(interactiveGroup);
+
+  // 创建 HTMLMesh
+  const htmlMesh = new HTMLMesh(gui.domElement);
+
+  // 设置位置和缩放 - 参考示例代码的配置
+  htmlMesh.position.set(-0.75, 1.5, -0.5);
+  htmlMesh.rotation.y = Math.PI / 4;
+  htmlMesh.scale.setScalar(2);
+
+  interactiveGroup.add(htmlMesh);
+
+  console.log('HTMLMesh 已通过 InteractiveGroup 创建并添加到场景');
+  debugPanel.log('✓ lil-gui 已加载到3D场景中（支持交互）');
 }
 
 // 更新 GUI 中的模型信息
@@ -471,6 +642,8 @@ async function loadCAEModel() {
     // 计算法线
     geometry.computeVertexNormals()
 
+    // 应用 UV 映射
+    applyBoxUV(geometry)
 
     const pressures = geometry.attributes.pressure;
     const newColors = geometry.attributes.color || new THREE.Float32BufferAttribute([], 3);
@@ -491,23 +664,13 @@ async function loadCAEModel() {
     newColors.needsUpdate = true;
 
 
-    const planes = [
-      new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0), // X 轴平面
-      new THREE.Plane(new THREE.Vector3(0, -1, 0), 0), // Y 轴平面
-      new THREE.Plane(new THREE.Vector3(0, 0, -1), 0) // Z 轴平面
-    ];
     // 创建材质（简单的标准材质）
     const material = new THREE.MeshStandardMaterial({
       side: THREE.DoubleSide, // 双面渲染
       metalness: 0, // 金属度
       roughness: 0, // 粗糙度
       vertexColors: true, // 使用顶点颜色
-      // clipping: true, // 启用裁剪
-      // clippingPlanes: planes, // 裁剪平面数组
-      // renderOrder: 0, // 渲染顺序
-      // uniforms: {
-      //   iTime: { value: 0.5 }
-      // }
+      clippingPlanes: planes, // 裁剪平面数组
     })
 
     // 创建网格
@@ -529,23 +692,34 @@ async function loadCAEModel() {
     const scale = 2 / maxDim // 缩放到合适大小
     caeMesh.scale.setScalar(scale)
 
-    // 将模型放到场景中心 (0, 0, 0)，并将其几何中心对齐到世界坐标原点
-    caeMesh.position.set(-center.x * scale, -center.y * scale, -center.z * scale)
+    // 计算模型底部位置（变换后的最低点）
+    const modelBottom = bbox.min.y * scale
+
+    // 设置地面在 y=0 位置（标准地面高度）
+    ground.position.y = 0
+
+    // 将模型放置在地面上方
+    // X和Z方向居中，Y方向让底部贴着地面
+    caeMesh.position.set(
+      -center.x * scale,                    // X轴居中
+      -modelBottom + 0.01,                  // Y轴：让底部离地面0.01单位（避免z-fighting）
+      -center.z * scale                     // Z轴居中
+    )
 
     scene.add(caeMesh)
     interactableObjects.push(caeMesh)
+
+    // 更新裁剪平面范围
+    updateClippingPlaneRanges(bbox, scale, center)
 
     // 计算缩放后的包围盒大小
     const scaledSize = size.multiplyScalar(scale)
     const distance = Math.max(scaledSize.x, scaledSize.y, scaledSize.z) * 2
 
     // 保存模型信息供 VR 模式使用
-    caeModelCenter.set(0, 0, 0) // 模型中心在世界坐标原点
+    // 模型中心在地面上方（计算实际的模型中心位置）
+    caeModelCenter.set(0, (bbox.max.y - bbox.min.y) * scale / 2 + 0.01, 0)
     caeViewDistance = distance
-
-    // 调整地面位置到模型下方
-    const modelBottom = bbox.min.y * scale - center.y * scale
-    ground.position.y = modelBottom - 0.1 // 稍微留一点间隙
 
     // 更新 VR 地面高度（玩家站在地面上，眼睛高度 1.6m）
     groundLevel = ground.position.y + 1.6
@@ -558,23 +732,505 @@ async function loadCAEModel() {
     controls.target.copy(caeModelCenter)
     controls.update()
 
-    debugPanel.log(`✓ CAE 模型加载成功 (${valueData[0].name})`)
+    // 计算最大最小值用于颜色映射
+    const pressureArray = data[0]?.val || []
+    maxval = Math.max(...pressureArray)
+    minval = Math.min(...pressureArray)
+
+    // 更新颜色和 LUT 显示
+    updateColors()
+    updateLutDisplay()
+
+    const modelName = valueData[0]?.name || 'Unknown'
+    debugPanel.log(`✓ CAE 模型加载成功 (${modelName})`)
     debugPanel.log(`模型尺寸: ${scaledSize.x.toFixed(2)} x ${scaledSize.y.toFixed(2)} x ${scaledSize.z.toFixed(2)}`)
+    debugPanel.log(`数值范围: ${minval.toFixed(2)} ~ ${maxval.toFixed(2)}`)
     debugPanel.log('桌面: 鼠标拖动旋转查看 / VR: 点击"Enter VR"按钮进入')
 
     // 更新 GUI 标题和模型信息
     if (gui && geometry.attributes.position) {
-      gui.title(`CAE 模型控制 - ${valueData[0].name}`)
+      gui.title(`CAE 模型控制 - ${modelName}`)
 
       const vertexCount = geometry.attributes.position.count
       const faceCount = geometry.index ? geometry.index.count / 3 : vertexCount / 3
-      updateGUIModelInfo(valueData[0].name, vertexCount, faceCount, scaledSize)
+      updateGUIModelInfo(modelName, vertexCount, faceCount, scaledSize)
+
+      // 设置类型节点数据
+      setupTypeNodeGUI()
     }
 
   } catch (error) {
     console.error('加载 CAE 模型失败:', error)
     debugPanel.log('✗ CAE 模型加载失败')
   }
+}
+
+// 设置类型节点选择器
+let frameController: any = null
+
+function setupTypeNodeGUI() {
+  if (!gui) return
+
+  // 构建类型列表和节点数据
+  const types: string[] = []
+  newTaskValues.forEach(v => {
+    types.push(v.name)
+    if (!guiParams.nodes[v.name]) {
+      guiParams.nodes[v.name] = v.value
+    }
+  })
+
+  if (types.length === 0) return
+
+  // 设置初始类型
+  guiParams.typenode = types[0] || ''
+  guiParams.nownode = guiParams.nodes[guiParams.typenode] || []
+
+  // 设置初始帧
+  if (guiParams.nownode.length > 0) {
+    guiParams.frame = guiParams.nownode[0]?.key || ''
+  }
+
+  // 添加类型选择器到 GUI
+  gui.add(guiParams, 'typenode', types)
+    .name('数据类型')
+    .onChange(() => {
+      guiParams.nownode = guiParams.nodes[guiParams.typenode] || []
+      if (guiParams.nownode.length > 0) {
+        guiParams.frame = guiParams.nownode[0]?.key || ''
+        updateTimes()
+
+        // 更新帧选择器
+        updateFrameController()
+      }
+      debugPanel.log(`数据类型: ${guiParams.typenode}`)
+    })
+
+  // 添加帧选择器
+  updateFrameController()
+}
+
+// 更新帧选择控制器
+function updateFrameController() {
+  if (!gui) return
+
+  // 移除旧的帧控制器
+  if (frameController) {
+    frameController.destroy()
+    frameController = null
+  }
+
+  // 添加新的帧选择器
+  if (guiParams.nownode.length > 0) {
+    const frameKeys = guiParams.nownode.map(n => n.key || '')
+    frameController = gui.add(guiParams, 'frame', frameKeys)
+      .name('时间帧')
+      .onChange(() => {
+        updateTimes()
+        debugPanel.log(`时间帧: ${guiParams.frame}`)
+      })
+  }
+}
+
+// 更新裁剪平面范围
+function updateClippingPlaneRanges(bbox: THREE.Box3, scale: number, center: THREE.Vector3) {
+  if (!gui) return
+
+  // 计算变换后的包围盒
+  // 模型现在底部在 y=0，X和Z居中
+  const modelBottom = bbox.min.y * scale
+  const transformedMin = new THREE.Vector3(
+    bbox.min.x * scale - center.x * scale,
+    -modelBottom + 0.01,
+    bbox.min.z * scale - center.z * scale
+  )
+  const transformedMax = new THREE.Vector3(
+    bbox.max.x * scale - center.x * scale,
+    bbox.max.y * scale - modelBottom + 0.01,
+    bbox.max.z * scale - center.z * scale
+  )
+
+  // 更新剖切平面的大小，确保能覆盖整个模型
+  const size = new THREE.Vector3()
+  new THREE.Box3(transformedMin, transformedMax).getSize(size)
+  const maxSize = Math.max(size.x, size.y, size.z) * 2 // 放大一些确保覆盖
+
+  planeObjects.forEach((po) => {
+    const geometry = new THREE.PlaneGeometry(maxSize, maxSize)
+    po.geometry.dispose()
+    po.geometry = geometry
+  })
+
+  // 更新 planeHelper 的大小
+  planeHelpers.forEach((ph) => {
+    ph.size = maxSize
+  })
+
+  // 添加一些边距
+  const margin = 0.1
+  const minX = transformedMin.x + transformedMin.x * margin
+  const maxX = transformedMax.x + transformedMax.x * margin
+  const minY = transformedMin.y + transformedMin.y * margin
+  const maxY = transformedMax.y + transformedMax.y * margin
+  const minZ = transformedMin.z + transformedMin.z * margin
+  const maxZ = transformedMax.z + transformedMax.z * margin
+
+  // 找到 X/Y/Z 裁剪文件夹并更新
+  const planeXFolder = gui.folders.find(f => f._title === 'X 轴裁剪')
+  const planeYFolder = gui.folders.find(f => f._title === 'Y 轴裁剪')
+  const planeZFolder = gui.folders.find(f => f._title === 'Z 轴裁剪')
+
+  if (planeXFolder) {
+    const controller = planeXFolder.controllers.find(c => c.property === 'scope')
+    if (controller && planes[0]) {
+      // 法线是 (-1,0,0)，所以 constant 越大，剪掉的越少
+      controller.min(minX).max(maxX)
+      guiParams.planeX.scope = maxX + 10
+      planes[0].constant = maxX + 10
+      controller.updateDisplay()
+    }
+  }
+
+  if (planeYFolder) {
+    const controller = planeYFolder.controllers.find(c => c.property === 'scope')
+    if (controller && planes[1]) {
+      // 法线是 (0,-1,0)，所以 constant 越大，剪掉的越少
+      controller.min(minY).max(maxY)
+      guiParams.planeY.scope = maxY + 10
+      planes[1].constant = maxY + 10
+      controller.updateDisplay()
+    }
+  }
+
+  if (planeZFolder) {
+    const controller = planeZFolder.controllers.find(c => c.property === 'scope')
+    if (controller && planes[2]) {
+      // 法线是 (0,0,-1)，所以 constant 越大，剪掉的越少
+      controller.min(minZ).max(maxZ)
+      guiParams.planeZ.scope = maxZ + 10
+      planes[2].constant = maxZ + 10
+      controller.updateDisplay()
+    }
+  }
+}
+
+// 更新颜色
+function updateColors() {
+  if (!caeMesh) return
+
+  lut.setColorMap(guiParams.caeModel.colorMap)
+  lut.setMax(maxval)
+  lut.setMin(minval)
+
+  const geometry = caeMesh.geometry
+  const pressures = geometry.attributes.pressure
+  const colors = geometry.attributes.color
+
+  if (!pressures || !colors) return
+
+  for (let i = 0; i < pressures.array.length; i++) {
+    const colorValue = pressures.array[i] ?? 0
+    const color = lut.getColor(colorValue)
+    if (color) {
+      colors.setXYZ(i, color.r, color.g, color.b)
+    }
+  }
+  colors.needsUpdate = true
+
+  // 更新 LUT 显示
+  updateLutDisplay()
+}
+
+// 处理颜色映射切换
+function handleColorMapChange() {
+  guiParams.caeModel.colorMap = selectedColorMap.value
+  updateColors()
+}
+
+// 更新 LUT 颜色条显示
+function updateLutDisplay() {
+  if (!lutRef.value || !shuzhiRef.value) return
+
+  // 清除旧的显示
+  while (lutRef.value.firstChild) {
+    lutRef.value.removeChild(lutRef.value.firstChild)
+  }
+  while (shuzhiRef.value.firstChild) {
+    shuzhiRef.value.removeChild(shuzhiRef.value.firstChild)
+  }
+
+  // 创建 LUT 颜色条
+  const lutCanvas = lut.createCanvas()
+  lutCanvas.style.width = '1rem'
+  lutCanvas.style.height = `${Math.min(window.innerHeight * 0.7, 415)}px`
+  lutRef.value.appendChild(lutCanvas)
+
+  // 创建数值标签
+  const mrW = 100
+  const mrH = Math.min(window.innerHeight * 0.7, 415)
+  const canvas = document.createElement('canvas')
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+
+  canvas.width = mrW
+  canvas.height = mrH + 40
+  ctx.font = '12px bold'
+  ctx.strokeStyle = '#ffffff'
+  ctx.fillStyle = '#ffffff'
+  ctx.textAlign = 'right'
+  ctx.textBaseline = 'middle'
+
+  const isShowPoint = Math.max(Math.abs(maxval), Math.abs(minval)) >= 100
+
+  // 绘制数值刻度
+  for (let i = 0; i <= 10; i++) {
+    const value = maxval - ((maxval - minval) / 10) * i
+    const y = 7 + ((mrH - 14) / 10) * i
+    ctx.fillText(formatNumber(value, isShowPoint), mrW, y)
+  }
+
+  // 绘制单位和类型
+  const unit = newTaskValues[0]?.unit || ''
+  const name = newTaskValues[0]?.name || ''
+  ctx.fillText(unit, mrW, mrH + 14)
+  ctx.fillText(name, mrW, mrH + 32)
+
+  shuzhiRef.value.appendChild(canvas)
+}
+
+// 格式化数字显示
+function formatNumber(value: number, isShowPoint?: boolean): string {
+  if (isShowPoint === undefined) {
+    isShowPoint = Math.abs(value) >= 100
+  }
+
+  if (Math.abs(value) < 0.01 && value !== 0) {
+    return value.toExponential(2)
+  }
+
+  if (isShowPoint) {
+    return Math.floor(value).toString()
+  } else {
+    return value.toFixed(2)
+  }
+}
+
+// UV 映射函数
+function _applyBoxUV(geom: THREE.BufferGeometry, transformMatrix: THREE.Matrix4, bbox: THREE.Box3, bbox_max_size: number) {
+  const coords: number[] = [];
+  const positionAttr = geom.attributes.position;
+  if (!positionAttr) {
+    return;
+  }
+  coords.length = (2 * positionAttr.array.length) / 3;
+
+  if (geom.attributes.uv === undefined) {
+    geom.setAttribute('uv', new THREE.Float32BufferAttribute(coords, 2));
+  }
+
+  const makeUVs = function (v0: THREE.Vector3, v1: THREE.Vector3, v2: THREE.Vector3) {
+    v0.applyMatrix4(transformMatrix);
+    v1.applyMatrix4(transformMatrix);
+    v2.applyMatrix4(transformMatrix);
+
+    const n = new THREE.Vector3();
+    n.crossVectors(v1.clone().sub(v0), v1.clone().sub(v2)).normalize();
+    n.x = Math.abs(n.x);
+    n.y = Math.abs(n.y);
+    n.z = Math.abs(n.z);
+
+    const uv0 = new THREE.Vector2();
+    const uv1 = new THREE.Vector2();
+    const uv2 = new THREE.Vector2();
+
+    if (n.y > n.x && n.y > n.z) {
+      uv0.x = (v0.x - bbox.min.x) / bbox_max_size;
+      uv0.y = (bbox.max.z - v0.z) / bbox_max_size;
+      uv1.x = (v1.x - bbox.min.x) / bbox_max_size;
+      uv1.y = (bbox.max.z - v1.z) / bbox_max_size;
+      uv2.x = (v2.x - bbox.min.x) / bbox_max_size;
+      uv2.y = (bbox.max.z - v2.z) / bbox_max_size;
+    } else if (n.x > n.y && n.x > n.z) {
+      uv0.x = (v0.z - bbox.min.z) / bbox_max_size;
+      uv0.y = (v0.y - bbox.min.y) / bbox_max_size;
+      uv1.x = (v1.z - bbox.min.z) / bbox_max_size;
+      uv1.y = (v1.y - bbox.min.y) / bbox_max_size;
+      uv2.x = (v2.z - bbox.min.z) / bbox_max_size;
+      uv2.y = (v2.y - bbox.min.y) / bbox_max_size;
+    } else if (n.z > n.y && n.z > n.x) {
+      uv0.x = (v0.x - bbox.min.x) / bbox_max_size;
+      uv0.y = (v0.y - bbox.min.y) / bbox_max_size;
+      uv1.x = (v1.x - bbox.min.x) / bbox_max_size;
+      uv1.y = (v1.y - bbox.min.y) / bbox_max_size;
+      uv2.x = (v2.x - bbox.min.x) / bbox_max_size;
+      uv2.y = (v2.y - bbox.min.y) / bbox_max_size;
+    }
+
+    return { uv0: uv0, uv1: uv1, uv2: uv2 };
+  };
+
+  if (geom.index && positionAttr) {
+    for (let vi = 0; vi < geom.index.array.length; vi += 3) {
+      const idx0 = geom.index.array[vi] ?? 0;
+      const idx1 = geom.index.array[vi + 1] ?? 0;
+      const idx2 = geom.index.array[vi + 2] ?? 0;
+
+      const vx0 = positionAttr.array[3 * idx0] ?? 0;
+      const vy0 = positionAttr.array[3 * idx0 + 1] ?? 0;
+      const vz0 = positionAttr.array[3 * idx0 + 2] ?? 0;
+
+      const vx1 = positionAttr.array[3 * idx1] ?? 0;
+      const vy1 = positionAttr.array[3 * idx1 + 1] ?? 0;
+      const vz1 = positionAttr.array[3 * idx1 + 2] ?? 0;
+
+      const vx2 = positionAttr.array[3 * idx2] ?? 0;
+      const vy2 = positionAttr.array[3 * idx2 + 1] ?? 0;
+      const vz2 = positionAttr.array[3 * idx2 + 2] ?? 0;
+
+      const v0 = new THREE.Vector3(vx0, vy0, vz0);
+      const v1 = new THREE.Vector3(vx1, vy1, vz1);
+      const v2 = new THREE.Vector3(vx2, vy2, vz2);
+
+      const uvs = makeUVs(v0, v1, v2);
+
+      coords[2 * idx0] = uvs.uv0.x;
+      coords[2 * idx0 + 1] = uvs.uv0.y;
+      coords[2 * idx1] = uvs.uv1.x;
+      coords[2 * idx1 + 1] = uvs.uv1.y;
+      coords[2 * idx2] = uvs.uv2.x;
+      coords[2 * idx2 + 1] = uvs.uv2.y;
+    }
+  }
+
+  const uvAttr = geom.attributes.uv;
+  if (uvAttr) {
+    geom.setAttribute('uv', new THREE.Float32BufferAttribute(coords, 2));
+  }
+}
+
+function applyBoxUV(bufferGeometry: THREE.BufferGeometry, transformMatrix: THREE.Matrix4 | undefined = undefined, boxSize: number | undefined = undefined) {
+  if (transformMatrix === undefined) {
+    transformMatrix = new THREE.Matrix4();
+  }
+
+  if (boxSize === undefined) {
+    const geom = bufferGeometry;
+    geom.computeBoundingBox();
+    const bbox = geom.boundingBox;
+
+    if (!bbox) {
+      return;
+    }
+
+    const bbox_size_x = bbox.max.x - bbox.min.x;
+    const bbox_size_z = bbox.max.z - bbox.min.z;
+    const bbox_size_y = bbox.max.y - bbox.min.y;
+
+    boxSize = Math.max(bbox_size_x, bbox_size_y, bbox_size_z);
+  }
+
+  const uvBbox = new THREE.Box3(
+    new THREE.Vector3(-boxSize / 2, -boxSize / 2, -boxSize / 2),
+    new THREE.Vector3(boxSize / 2, boxSize / 2, boxSize / 2)
+  );
+
+  _applyBoxUV(bufferGeometry, transformMatrix, uvBbox, boxSize);
+}
+
+// 更新时间帧数据
+function updateTimes() {
+  newTaskValues.forEach(v => {
+    if (v.name === guiParams.typenode) {
+      const val = v.value.find(s => s.key === guiParams.frame);
+      if (val && val.val && caeMesh) {
+        const geometry = caeMesh.geometry as THREE.BufferGeometry
+        geometry.setAttribute('pressure', new THREE.Float32BufferAttribute(val.val, 1));
+
+        const pressureArray = val.val;
+        maxval = Math.max(...pressureArray);
+        minval = Math.min(...pressureArray);
+
+        updateColors();
+        updateLutDisplay();
+      }
+    }
+  });
+}
+
+// 动画播放
+function playAnimation() {
+  if (!guiParams.nownode || guiParams.nownode.length === 0) return;
+
+  let currentFrameIndex = 0;
+
+  const animate = () => {
+    if (!guiParams.animate) return;
+
+    const frameData = guiParams.nownode[currentFrameIndex];
+    if (frameData && frameData.key) {
+      guiParams.frame = frameData.key;
+      updateTimes();
+
+      currentFrameIndex = (currentFrameIndex + 1) % guiParams.nownode.length;
+
+      animationFrameId = window.setTimeout(() => {
+        requestAnimationFrame(animate);
+      }, 100); // 每100ms切换一帧
+    }
+  };
+
+  animate();
+}
+
+// 停止动画
+function stopAnimation() {
+  if (animationFrameId !== null) {
+    clearTimeout(animationFrameId);
+    animationFrameId = null;
+  }
+}
+
+// 鼠标悬停显示数值
+function initMouseValueDisplay() {
+  window.addEventListener('mousemove', (event) => {
+    if (!caeMesh || guiParams.caeModel.opacity === 0) {
+      showValuePopover.value = false
+      return
+    }
+
+    clearTimeout(setValueTimeout)
+    setValueTimeout = setTimeout(() => {
+      mouse.x = (event.clientX / window.innerWidth) * 2 - 1
+      mouse.y = -(event.clientY / window.innerHeight) * 2 + 1
+      mouseLocation.x = event.clientX + 20
+      mouseLocation.y = event.clientY + 20
+
+      raycaster.setFromCamera(mouse, camera)
+      const intersects = raycaster.intersectObject(caeMesh!)
+
+      if (intersects.length > 0 && intersects[0]) {
+        const face = intersects[0].face
+        const object = intersects[0].object as THREE.Mesh
+        const pressure = object.geometry.attributes.pressure
+
+        if (face && pressure) {
+          const values = [
+            pressure.array[face.a],
+            pressure.array[face.b],
+            pressure.array[face.c]
+          ].filter((v): v is number => v !== undefined)
+
+          if (values.length > 0) {
+            pointValue.value = values.reduce((a, b) => a + b) / values.length
+            showValuePopover.value = true
+            return
+          }
+        }
+      }
+
+      showValuePopover.value = false
+    }, 100)
+  })
 }
 
 let highlightedObject: THREE.Object3D | null = null;
@@ -621,232 +1277,19 @@ function handleResize() {
   camera.updateProjectionMatrix();
   renderer.setSize(width, height);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+  // 更新 CSS3D 渲染器
+  // HTMLMesh 不需要单独调整renderer大小
 }
 
 
 
 
-let grabbedObject: THREE.Object3D | null = null
-let grabHand: 'vr-left' | 'vr-right' | 'desktop' | null = null
-
-// 跳跃相关状态
-let verticalVelocity = 0
-const gravity = -0.008
-const jumpStrength = 0.15
+// 游戏逻辑状态 - 由VR管理器内部管理
 let groundLevel = 0.6 // VR 眼睛高度，会在模型加载后更新
-
-const gameLogic = {
-  // 选择开始
-  handleSelectStart: (position: THREE.Vector3, direction: THREE.Vector3, hand: string) => {
-    debugPanel.log(`[${hand}] 选择开始`)
-    // 射线检测
-    const raycaster = new THREE.Raycaster(position, direction)
-    const intersections = raycaster.intersectObjects(interactableObjects, true)
-    if (intersections.length > 0 && intersections[0]?.object) {
-      const hitObject = intersections[0].object
-      debugPanel.log(`命中: ${hitObject.name || hitObject.type}`)
-      highlightObject(hitObject)
-    }
-  },
-
-  // 选择结束
-  handleSelectEnd: (hand: string) => {
-    debugPanel.log(`[${hand}] 选择结束`)
-    highlightObject(null)
-  },
-
-  // 抓取开始
-  handleGrabStart: (position: THREE.Vector3, direction: THREE.Vector3, hand: 'left' | 'right', controller?: THREE.Group) => {
-    debugPanel.log(`[${hand}] 抓取开始`)
-
-    const raycaster = new THREE.Raycaster(position, direction)
-    const intersections = raycaster.intersectObjects(interactableObjects, true)
-
-    if (intersections.length > 0 && intersections[0]?.object) {
-      grabbedObject = intersections[0].object
-      grabHand = controller ? `vr-${hand}` : 'desktop'
-
-      debugPanel.log(`已抓取: ${grabbedObject.name || grabbedObject.type}`)
-
-      // VR 模式：附加到控制器
-      if (controller) {
-        controller.attach(grabbedObject)
-      }
-    }
-  },
-
-  // 抓取结束
-  handleGrabEnd: (hand: string, controller?: THREE.Group) => {
-    debugPanel.log(`[${hand}] 抓取结束`)
-
-    if (grabbedObject) {
-      // VR 模式：从控制器分离
-      if (controller) {
-        const attachedObject = controller.children.find(
-          (child) => child.type === 'Mesh' && child.name !== 'line'
-        )
-        if (attachedObject) {
-          scene.attach(attachedObject as THREE.Object3D)
-        }
-      }
-
-      debugPanel.log('已释放物体')
-      grabbedObject = null
-      grabHand = null
-    }
-  },
-
-  // 移动（桌面：移动相机；VR：移动玩家容器）
-  handleMove: (delta: THREE.Vector2) => {
-    const speed = 0.05
-
-    // 计算前进方向（基于相机朝向，忽略 Y 轴）
-    const direction = new THREE.Vector3(0, 0, -1)
-    direction.applyQuaternion(camera.quaternion)
-    direction.y = 0
-    direction.normalize()
-
-    // 计算侧向（前进方向的垂直向量）
-    const strafe = new THREE.Vector3(-direction.z, 0, direction.x)
-
-    // VR 模式下相机在 rig 中，移动 rig；桌面模式移动相机
-    const target = camera.parent || camera
-    target.position.addScaledVector(direction, -delta.y * speed) // 前后
-    target.position.addScaledVector(strafe, delta.x * speed)    // 左右
-  },
-
-  // 跳跃
-  handleJump: () => {
-    const target = camera.parent || camera
-    // 只有在地面上才能跳
-    if (target.position.y <= groundLevel) {
-      verticalVelocity = jumpStrength
-      debugPanel.log('跳跃!')
-    }
-  },
-}
-
-//#region vr 操作
-
-const controllerModelFactory = new XRControllerModelFactory()
-const vrControllers: Array<{
-  controller: THREE.Group
-  controllerGrip: THREE.Group
-  line: THREE.Line
-}> = []
-
-function createVRController(index: number) {
-  const controller = renderer.xr.getController(index)
-
-  // 创建控制器射线
-  const geometry = new THREE.BufferGeometry().setFromPoints([
-    new THREE.Vector3(0, 0, 0),
-    new THREE.Vector3(0, 0, -1),
-  ])
-  const material = new THREE.LineBasicMaterial({ color: 0x00ffff })
-  const line = new THREE.Line(geometry, material)
-  line.name = 'line'
-  line.scale.z = 5
-  controller.add(line)
-  scene.add(controller)
-
-  // 控制器模型
-  const controllerGrip = renderer.xr.getControllerGrip(index)
-  const model = controllerModelFactory.createControllerModel(controllerGrip)
-  controllerGrip.add(model)
-  scene.add(controllerGrip)
-
-  // 绑定控制器事件
-  controller.addEventListener('selectstart', () => {
-    handleVRSelectStart(controller, index)
-  })
-  controller.addEventListener('selectend', () => {
-    handleVRSelectEnd(controller, index)
-  })
-  controller.addEventListener('squeezestart', () => {
-    handleVRSqueezeStart(controller, index)
-  })
-  controller.addEventListener('squeezeend', () => {
-    handleVRSqueezeEnd(controller, index)
-  })
-
-  return { controller, controllerGrip, line }
-}
-
-
-// 获取控制器游戏手柄状态
-function getGamepadState(index: number) {
-  const session = renderer.xr.getSession()
-  if (!session) return null
-  const inputSource = session.inputSources[index]
-  if (!inputSource?.gamepad) return null
-  const gamepad = inputSource.gamepad
-  return {
-    buttons: gamepad.buttons.map(button => ({
-      pressed: button.pressed,
-      touched: button.touched,
-      value: button.value,
-    })),
-    axes: gamepad.axes,
-    trigger: gamepad.buttons[0]?.value || 0,
-    squeeze: gamepad.buttons[1]?.value || 0,
-    thumbstickX: gamepad.axes[2] || 0,
-    thumbstickY: gamepad.axes[3] || 0,
-    touchpadX: gamepad.axes[0] || 0,
-    touchpadY: gamepad.axes[1] || 0,
-  }
-}
-
-// 将控制器移动到新父对象
-function moveControllersToParent(parent: THREE.Object3D) {
-  vrControllers.forEach(({ controller, controllerGrip }) => {
-    if (controller.parent) controller.parent.remove(controller)
-    if (controllerGrip.parent) controllerGrip.parent.remove(controllerGrip)
-    parent.add(controller)
-    parent.add(controllerGrip)
-  })
-}
-
-// VR 控制器事件处理函数
-function handleVRSelectStart(controller: THREE.Group, index: number) {
-  const hand = index === 0 ? 'left' : 'right'
-  const pos = new THREE.Vector3().setFromMatrixPosition(controller.matrixWorld)
-  const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(controller.quaternion)
-  gameLogic.handleSelectStart(pos, dir, `vr-${hand}`)
-}
-
-function handleVRSelectEnd(_controller: THREE.Group, index: number) {
-  const hand = index === 0 ? 'left' : 'right'
-  gameLogic.handleSelectEnd(`vr-${hand}`)
-}
-
-function handleVRSqueezeStart(controller: THREE.Group, index: number) {
-  const hand = index === 0 ? 'left' : 'right'
-  const pos = new THREE.Vector3().setFromMatrixPosition(controller.matrixWorld)
-  const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(controller.quaternion)
-  gameLogic.handleGrabStart(pos, dir, hand, controller)
-}
-
-function handleVRSqueezeEnd(controller: THREE.Group, index: number) {
-  const hand = index === 0 ? 'left' : 'right'
-  gameLogic.handleGrabEnd(hand, controller)
-}
-//#endregion
+let grabbedObject: THREE.Object3D | null = null // 当前被抓取的物体
 
 const isVRMode = ref(false)
-
-// 按键状态跟踪
-const prevButtonStates: Map<string, boolean[]> = new Map()
-
-// 按键名称映射（Quest 手柄）
-const buttonNames = {
-  0: 'Trigger',      // 0: 扳机
-  1: 'Squeeze',      // 1: 侧键
-  3: 'Thumbstick',   // 3: 摇杆按下
-  4: 'X/A',          // 4: X键(左手) 或 A键(右手)
-  5: 'Y/B',          // 5: Y键(左手) 或 B键(右手)
-  12: 'Menu',        // 12: 菜单键
-}
 
 function animationLoop() {
   const deltaTime = clock.getDelta()
@@ -857,10 +1300,26 @@ function animationLoop() {
     controls.update()
   }
 
+  // 更新剖切平面位置和朝向
+  for (let i = 0; i < planeObjects.length; i++) {
+    const plane = planes[i];
+    const po = planeObjects[i];
+    if (plane && po) {
+      plane.coplanarPoint(po.position);
+      po.lookAt(
+        po.position.x - plane.normal.x,
+        po.position.y - plane.normal.y,
+        po.position.z - plane.normal.z
+      );
+    }
+  }
+
   // 让物体自动旋转（除非被抓取或是 CAE 模型）
   if (guiParams.testObjects.animate) {
     interactableObjects.forEach((obj, index) => {
-      if (obj !== grabbedObject && obj !== caeMesh) {
+      // 获取VR管理器中的被抓取物体状态
+      const vrGrabbedObject = vrManager ? vrManager.getGrabbedObject() : null
+      if (obj !== vrGrabbedObject && obj !== grabbedObject && obj !== caeMesh) {
         obj.rotation.y += deltaTime * 0.5
         obj.rotation.x += deltaTime * 0.2
         // 添加上下浮动效果
@@ -869,63 +1328,29 @@ function animationLoop() {
     })
   }
 
-  // 应用重力和垂直速度
-  const target = camera.parent || camera
-  verticalVelocity += gravity
-  target.position.y += verticalVelocity
-
-  // 地面碰撞检测
-  if (target.position.y < groundLevel) {
-    target.position.y = groundLevel
-    verticalVelocity = 0
+  // 更新 VR 状态
+  if (vrManager) {
+    vrManager.update()
+    // 同步VR管理器中的抓取状态
+    grabbedObject = vrManager.getGrabbedObject()
   }
 
-  // VR 模式：处理摇杆输入和GUI交互
-  // 监听左右手柄按键
-  [0, 1].forEach(index => {
-    const hand = index === 0 ? 'Left' : 'Right'
-    const gamepad = getGamepadState(index)
+  // 渲染场景
+  renderer.clear();
+  renderer.render(scene, camera)
 
-    if (gamepad) {
-      const prevState = prevButtonStates.get(hand) || []
-
-      // 检测每个按键变化
-      gamepad.buttons.forEach((button, btnIndex) => {
-        const wasPressed = prevState[btnIndex] || false
-        const isPressed = button.pressed
-
-        // 按下事件
-        if (isPressed && !wasPressed) {
-          const btnName = buttonNames[btnIndex as keyof typeof buttonNames] || `Button${btnIndex}`
-          debugPanel.log(`[${hand}] ${btnName} 按下 ${btnIndex}`)
-
-          // A键跳跃（右手按钮4）
-          if (hand === 'Right' && btnIndex === 4) {
-            gameLogic.handleJump()
-          }
-        }
-        // 释放事件
-        else if (!isPressed && wasPressed) {
-          const btnName = buttonNames[btnIndex as keyof typeof buttonNames] || `Button${btnIndex}`
-          debugPanel.log(`[${hand}] ${btnName} 释放 ${btnIndex}`)
-        }
-      })
-
-      // 保存当前状态
-      prevButtonStates.set(hand, gamepad.buttons.map(b => b.pressed))
-
-      // 摇杆移动（右手）
-      if (index === 1) {
-        const deadzone = 0.15
-        if (Math.abs(gamepad.thumbstickX) > deadzone || Math.abs(gamepad.thumbstickY) > deadzone) {
-          gameLogic.handleMove(new THREE.Vector2(gamepad.thumbstickX, gamepad.thumbstickY))
+  // 更新HTMLMesh材质贴图（如果GUI包含Canvas元素）
+  // Canvas元素不会触发DOM更新，所以需要手动更新纹理
+  if (interactiveGroup) {
+    interactiveGroup.children.forEach((child: any) => {
+      if (child instanceof HTMLMesh && child.material?.map) {
+        // 对于CanvasTexture，调用其update方法
+        if ('update' in child.material.map) {
+          (child.material.map as any).update();
         }
       }
-    }
-  })
-
-  // 渲染场景
-  renderer.render(scene, camera)
+    });
+  }
 }
 
 // 清理函数
@@ -1062,97 +1487,48 @@ onMounted(() => {
   initCamera();
   initRenderer();
   initControls();
-  initVRPlayerRig();
-  initObject();
+  // initObject();
   initDebugPanel();
   initGUI();
+
+  // 初始化 VR 管理器
+  vrManager = new VRManager({
+    renderer,
+    scene,
+    camera,
+    controls,
+    gui: gui || undefined,
+    mesh: caeMesh || undefined,
+    debugPanel,
+    testObjects: interactableObjects as THREE.Mesh[],
+    caeModelCenter,
+    caeViewDistance,
+    onSessionStart: () => {
+      isVRMode.value = true
+      debugPanel.hide()
+    },
+    onSessionEnd: () => {
+      isVRMode.value = false
+      debugPanel.show()
+    }
+  })
+  vrManager.init(container.value)
 
   // 加载 CAE 模型
   loadCAEModel();
 
+  // 初始化鼠标悬停数值显示
+  initMouseValueDisplay();
+
   window.addEventListener('resize', handleResize)
-
-  // 创建两个控制器
-  vrControllers.push(createVRController(0))
-  vrControllers.push(createVRController(1))
-
-  // 监听 VR 会话变化
-  renderer.xr.addEventListener('sessionstart', () => {
-    isVRMode.value = true
-    debugPanel.log('✓ 已进入 VR 模式')
-    debugPanel.log('控制器已就绪')
-
-    // 禁用 OrbitControls
-    controls.enabled = false
-
-    // 隐藏 GUI（VR 模式下不需要）
-    if (gui) {
-      gui.hide()
-    }
-
-    // 进入 VR：将相机从场景移到 rig 中
-    const worldPos = new THREE.Vector3()
-    camera.getWorldPosition(worldPos)
-
-    scene.remove(camera)
-
-    // 如果 CAE 模型已加载，将 VR 玩家定位到合适的观看位置
-    if (caeMesh) {
-      // 计算从模型中心向外看的位置（与桌面相机类似的角度）
-      const viewPos = new THREE.Vector3(
-        caeModelCenter.x + caeViewDistance * 0.7,
-        caeModelCenter.y + caeViewDistance * 0.3, // VR 中稍微低一点，更自然
-        caeModelCenter.z + caeViewDistance * 0.7
-      )
-
-      // 但要确保玩家站在地面上
-      viewPos.y = Math.max(viewPos.y, groundLevel)
-
-      vrPlayerRig.position.copy(viewPos)
-      debugPanel.log(`VR 玩家位置: ${viewPos.x.toFixed(1)}, ${viewPos.y.toFixed(1)}, ${viewPos.z.toFixed(1)}`)
-    } else {
-      vrPlayerRig.position.copy(worldPos)
-    }
-
-    vrPlayerRig.add(camera)
-
-    // 相机在 rig 内的局部位置归零（头显会控制相对位置）
-    camera.position.set(0, 0, 0)
-
-    // 将控制器移动到 VR Player Rig
-    moveControllersToParent(vrPlayerRig)
-    debugPanel.log('手柄已绑定到玩家')
-  })
-
-  renderer.xr.addEventListener('sessionend', () => {
-    isVRMode.value = false
-    debugPanel.log('✓ 已切换到桌面模式')
-
-    // 重新启用 OrbitControls
-    controls.enabled = true
-
-    // 显示 GUI
-    if (gui) {
-      gui.show()
-    }
-
-    // 退出 VR：将相机从 rig 移回场景
-    const worldPos = new THREE.Vector3()
-    camera.getWorldPosition(worldPos)
-
-    vrPlayerRig.remove(camera)
-    scene.add(camera)
-    camera.position.copy(worldPos)
-
-    // 重置 rig 位置供下次使用
-    vrPlayerRig.position.set(0, 0, 0)
-
-    // 将控制器移回场景
-    moveControllersToParent(scene)
-  })
 
   // 主动画循环
   renderer.setAnimationLoop(animationLoop)
+
+  // 等待 GUI 初始化后再创建 HTMLMesh
+  setTimeout(() => {
+    initCSS3DGUI();
+  }, 1000);
 })
 
 // 组件卸载时的清理
@@ -1160,16 +1536,94 @@ onUnmounted(() => {
   if (animationCleanup) {
     animationCleanup()
   }
+  if (vrManager) {
+    vrManager.dispose()
+  }
 })
 </script>
 
 <template>
   <div ref="container" class="model-container"></div>
+
+  <!-- 颜色映射选择 -->
+  <div class="color-map-selector">
+    <select v-model="selectedColorMap" @change="handleColorMapChange">
+      <option value="rainbow">彩虹</option>
+      <option value="cooltowarm">冷暖</option>
+      <option value="blackbody">黑体</option>
+      <option value="grayscale">灰度</option>
+      <option value="water">水色</option>
+      <option value="water2">水色2</option>
+    </select>
+  </div>
+
+  <!-- LUT 颜色条和数值显示 -->
+  <div class="lut-shuzhi">
+    <div class="flex">
+      <div ref="shuzhiRef" class="mr-1" />
+      <div ref="lutRef" />
+    </div>
+  </div>
+
+  <!-- 鼠标悬停数值显示 -->
+  <div v-show="showValuePopover" :style="{ left: `${mouseLocation.x}px`, top: `${mouseLocation.y}px` }"
+    class="value-popover">
+    {{ formatNumber(pointValue) }}
+  </div>
 </template>
 
 <style scoped>
 .model-container {
   width: 100%;
   height: 100%;
+}
+
+.color-map-selector {
+  position: absolute;
+  top: 2%;
+  left: 2%;
+  z-index: 100;
+}
+
+.color-map-selector select {
+  padding: 8px 12px;
+  font-size: 14px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  background-color: rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+  outline: none;
+}
+
+.color-map-selector select:hover {
+  border-color: #999;
+}
+
+.lut-shuzhi {
+  position: absolute;
+  top: 4%;
+  right: 2%;
+  pointer-events: none;
+}
+
+.flex {
+  display: flex;
+  align-items: flex-start;
+}
+
+.mr-1 {
+  margin-right: 0.5rem;
+}
+
+.value-popover {
+  position: absolute;
+  color: #ffffff;
+  background-color: rgba(0, 0, 0, 0.7);
+  padding: 0.5rem;
+  border: 1px solid #a3a3a3;
+  border-radius: 7px;
+  pointer-events: none;
+  font-size: 12px;
+  z-index: 1000;
 }
 </style>

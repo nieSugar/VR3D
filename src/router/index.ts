@@ -31,7 +31,25 @@ const routes: RouteRecordRaw[] = [
     name: "OldModel",
     component: () => import("../views/oldModel.vue"),
     meta: { title: "旧模型" },
-  }
+  },
+  {
+    path: "/dom",
+    name: "dom",
+    component: () => import("../views/dom.vue"),
+    meta: { title: "dom" },
+  },
+  {
+    path: "/vr-sandbox",
+    name: "VRSandbox",
+    component: () => import("../views/VRSandbox.vue"),
+    meta: { title: "VR Sandbox" },
+  },,
+  {
+    path: "/digitalbacon-ui",
+    name: "Digitalbacon-ui",
+    component: () => import("../views/digitalbacon-ui.vue"),
+    meta: { title: "digitalbacon-ui" },
+  },
 ];
 
 const router = createRouter({

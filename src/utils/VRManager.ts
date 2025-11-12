@@ -1,0 +1,584 @@
+import * as THREE from 'three';
+import { VRButton } from 'three/examples/jsm/webxr/VRButton.js';
+import { XRControllerModelFactory } from 'three/examples/jsm/webxr/XRControllerModelFactory.js';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import GUI from 'lil-gui';
+import { VRDebugPanel } from './VRDebugPanel';
+
+// VR控制器接口定义
+interface VRController {
+  controller: THREE.Group;
+  controllerGrip: THREE.Group;
+  line: THREE.Line;
+}
+
+// 游戏手柄状态接口
+interface GamepadState {
+  buttons: Array<{
+    pressed: boolean;
+    touched: boolean;
+    value: number;
+  }>;
+  axes: number[];
+  trigger: number;
+  squeeze: number;
+  thumbstickX: number;
+  thumbstickY: number;
+  touchpadX: number;
+  touchpadY: number;
+}
+
+// 游戏逻辑回调接口
+interface GameLogicCallbacks {
+  handleSelectStart?: (position: THREE.Vector3, direction: THREE.Vector3, hand: string) => void;
+  handleSelectEnd?: (hand: string) => void;
+  handleGrabStart?: (position: THREE.Vector3, direction: THREE.Vector3, hand: 'left' | 'right', controller?: THREE.Group, grabbedObject?: THREE.Object3D | null) => THREE.Object3D | null;
+  handleGrabEnd?: (hand: string, controller?: THREE.Group, grabbedObject?: THREE.Object3D | null) => void;
+  handleJump?: () => void;
+  handleMove?: (delta: THREE.Vector2) => void;
+}
+
+// VR管理器配置接口
+interface VRManagerConfig {
+  renderer: THREE.WebGLRenderer;
+  scene: THREE.Scene;
+  camera: THREE.PerspectiveCamera;
+  controls?: OrbitControls;
+  gui?: GUI;
+  mesh?: THREE.Mesh;
+  debugPanel?: VRDebugPanel;
+  testObjects?: THREE.Mesh[];
+  caeModelCenter?: THREE.Vector3;
+  caeViewDistance?: number;
+  onSessionStart?: () => void;
+  onSessionEnd?: () => void;
+  gameLogic?: GameLogicCallbacks;
+}
+
+// VR管理器类
+export class VRManager {
+  private renderer: THREE.WebGLRenderer;
+  private scene: THREE.Scene;
+  private camera: THREE.PerspectiveCamera;
+  private controls?: OrbitControls;
+  private gui?: GUI;
+  private mesh?: THREE.Mesh;
+  private debugPanel?: VRDebugPanel;
+  private testObjects?: THREE.Mesh[];
+  private caeModelCenter: THREE.Vector3;
+  private caeViewDistance: number;
+
+  // VR相关变量
+  private vrPlayerRig: THREE.Group;
+  private ground: THREE.Mesh | null = null;
+  private controllerModelFactory: XRControllerModelFactory;
+  private vrControllers: VRController[] = [];
+  private prevButtonStates: Map<string, boolean[]> = new Map();
+  
+  // 游戏逻辑变量
+  private grabbedObject: THREE.Object3D | null = null;
+  private grabHand: 'vr-left' | 'vr-right' | 'desktop' | null = null;
+  private verticalVelocity = 0;
+  private readonly gravity = -0.008;
+  private readonly jumpStrength = 0.15;
+  private readonly groundLevel = 0;
+
+  // 按键名称映射（Quest手柄）
+  private readonly buttonNames = {
+    0: 'Trigger',      // 扳机
+    1: 'Squeeze',      // 侧键
+    3: 'Thumbstick',   // 摇杆按下
+    4: 'X/A',          // X键(左手) 或 A键(右手)
+    5: 'Y/B',          // Y键(左手) 或 B键(右手)
+    12: 'Menu',        // 菜单键
+  };
+
+  // 用户自定义回调
+  private onSessionStart?: () => void;
+  private onSessionEnd?: () => void;
+
+  constructor(config: VRManagerConfig) {
+    this.renderer = config.renderer;
+    this.scene = config.scene;
+    this.camera = config.camera;
+    this.controls = config.controls;
+    this.gui = config.gui;
+    this.mesh = config.mesh;
+    this.debugPanel = config.debugPanel;
+    this.testObjects = config.testObjects;
+    this.caeModelCenter = config.caeModelCenter || new THREE.Vector3(0, 0, 0);
+    this.caeViewDistance = config.caeViewDistance || 5;
+    this.onSessionStart = config.onSessionStart;
+    this.onSessionEnd = config.onSessionEnd;
+
+    this.controllerModelFactory = new XRControllerModelFactory();
+    
+    // 初始化VR Player Rig
+    this.vrPlayerRig = new THREE.Group();
+    this.vrPlayerRig.name = 'VRPlayerRig';
+    this.vrPlayerRig.position.set(3, 1.6, 3); // 初始位置稍微远一点，面向场景中心
+    this.scene.add(this.vrPlayerRig);
+
+    // 启用VR
+    this.renderer.xr.enabled = true;
+  }
+
+  // 更新模型引用和相关参数
+  public updateMesh(mesh: THREE.Mesh): void {
+    this.mesh = mesh;
+  }
+
+  // 更新模型中心和观察距离
+  public updateModelParams(center: THREE.Vector3, viewDistance: number): void {
+    this.caeModelCenter.copy(center);
+    this.caeViewDistance = viewDistance;
+  }
+
+  // 初始化VR系统
+  public init(container: HTMLElement): void {
+    // 添加VR按钮
+    container.appendChild(VRButton.createButton(this.renderer));
+
+    // 创建地面
+    this.createGround();
+
+    // 创建VR控制器
+    this.vrControllers.push(this.createVRController(0));
+    this.vrControllers.push(this.createVRController(1));
+
+    // 监听VR会话变化
+    this.setupVRSessionListeners();
+  }
+
+  // 创建地面
+  private createGround(): void {
+    const groundGeometry = new THREE.PlaneGeometry(20, 20);
+    const groundMaterial = new THREE.MeshStandardMaterial({
+      color: 0x2d2d44,
+      roughness: 0.8,
+      metalness: 0.2
+    });
+    this.ground = new THREE.Mesh(groundGeometry, groundMaterial);
+    this.ground.rotation.x = -Math.PI / 2;
+    this.ground.position.y = 0;
+    this.ground.receiveShadow = true;
+    this.scene.add(this.ground);
+  }
+
+  // 创建VR控制器
+  private createVRController(index: number): VRController {
+    const controller = this.renderer.xr.getController(index);
+
+    // 创建控制器射线
+    const geometry = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0, 0, 0),
+      new THREE.Vector3(0, 0, -1),
+    ]);
+    const material = new THREE.LineBasicMaterial({ color: 0x00ffff });
+    const line = new THREE.Line(geometry, material);
+    line.name = 'line';
+    line.scale.z = 5;
+    controller.add(line);
+    this.scene.add(controller);
+
+    // 控制器模型
+    const controllerGrip = this.renderer.xr.getControllerGrip(index);
+    const model = this.controllerModelFactory.createControllerModel(controllerGrip);
+    controllerGrip.add(model);
+    this.scene.add(controllerGrip);
+
+    // 绑定控制器事件
+    controller.addEventListener('selectstart', () => {
+      this.handleVRSelectStart(controller, index);
+    });
+    controller.addEventListener('selectend', () => {
+      this.handleVRSelectEnd(controller, index);
+    });
+    controller.addEventListener('squeezestart', () => {
+      this.handleVRSqueezeStart(controller, index);
+    });
+    controller.addEventListener('squeezeend', () => {
+      this.handleVRSqueezeEnd(controller, index);
+    });
+
+    return { controller, controllerGrip, line };
+  }
+
+  // 获取控制器游戏手柄状态
+  private getGamepadState(index: number): GamepadState | null {
+    const session = this.renderer.xr.getSession();
+    if (!session) return null;
+    const inputSource = session.inputSources[index];
+    if (!inputSource?.gamepad) return null;
+    const gamepad = inputSource.gamepad;
+    
+    return {
+      buttons: gamepad.buttons.map(button => ({
+        pressed: button.pressed,
+        touched: button.touched,
+        value: button.value,
+      })),
+      axes: Array.from(gamepad.axes),
+      trigger: gamepad.buttons[0]?.value || 0,
+      squeeze: gamepad.buttons[1]?.value || 0,
+      thumbstickX: gamepad.axes[2] || 0,
+      thumbstickY: gamepad.axes[3] || 0,
+      touchpadX: gamepad.axes[0] || 0,
+      touchpadY: gamepad.axes[1] || 0,
+    };
+  }
+
+  // 将控制器移动到新父对象
+  private moveControllersToParent(parent: THREE.Object3D): void {
+    this.vrControllers.forEach(({ controller, controllerGrip }) => {
+      if (controller.parent) controller.parent.remove(controller);
+      if (controllerGrip.parent) controllerGrip.parent.remove(controllerGrip);
+      parent.add(controller);
+      parent.add(controllerGrip);
+    });
+  }
+
+  // VR控制器事件处理
+  private handleVRSelectStart(controller: THREE.Group, index: number): void {
+    const hand = index === 0 ? 'left' : 'right';
+    const pos = new THREE.Vector3().setFromMatrixPosition(controller.matrixWorld);
+    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(controller.quaternion);
+    this.handleSelectStart(pos, dir, `vr-${hand}`);
+  }
+
+  private handleVRSelectEnd(_controller: THREE.Group, index: number): void {
+    const hand = index === 0 ? 'left' : 'right';
+    this.handleSelectEnd(`vr-${hand}`);
+  }
+
+  private handleVRSqueezeStart(controller: THREE.Group, index: number): void {
+    const hand = index === 0 ? 'left' : 'right';
+    const pos = new THREE.Vector3().setFromMatrixPosition(controller.matrixWorld);
+    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(controller.quaternion);
+    this.handleGrabStart(pos, dir, hand as 'left' | 'right', controller);
+  }
+
+  private handleVRSqueezeEnd(controller: THREE.Group, index: number): void {
+    const hand = index === 0 ? 'left' : 'right';
+    this.handleGrabEnd(hand, controller);
+  }
+
+  // 游戏逻辑处理
+  private handleSelectStart(position: THREE.Vector3, direction: THREE.Vector3, hand: string): void {
+    this.log(`[${hand}] 选择开始`);
+    
+    // 首先检查是否有测试物体
+    const raycaster = new THREE.Raycaster(position, direction);
+    
+    if (this.testObjects) {
+      const intersections = raycaster.intersectObjects(this.testObjects, false);
+      if (intersections.length > 0 && intersections[0]?.object) {
+        const hitObject = intersections[0].object;
+        this.log(`命中测试物体: ${hitObject.name || hitObject.type}`);
+        return;
+      }
+    }
+    
+    // 然后检查 CAE 模型
+    if (this.mesh) {
+      const intersections = raycaster.intersectObject(this.mesh, true);
+      if (intersections.length > 0 && intersections[0]?.object) {
+        const hitObject = intersections[0].object;
+        this.log(`命中: ${hitObject.name || hitObject.type}`);
+      }
+    }
+  }
+
+  private handleSelectEnd(hand: string): void {
+    this.log(`[${hand}] 选择结束`);
+  }
+
+  private handleGrabStart(position: THREE.Vector3, direction: THREE.Vector3, hand: 'left' | 'right', controller?: THREE.Group): void {
+    this.log(`[${hand}] 抓取开始`);
+    
+    const raycaster = new THREE.Raycaster(position, direction);
+    
+    // 先检查测试物体
+    if (this.testObjects) {
+      const intersections = raycaster.intersectObjects(this.testObjects, false);
+      if (intersections.length > 0 && intersections[0]?.object) {
+        this.grabbedObject = intersections[0].object;
+        this.grabHand = controller ? `vr-${hand}` : 'desktop';
+        this.log(`已抓取: ${this.grabbedObject.name || this.grabbedObject.type}`);
+        
+        if (controller) {
+          controller.attach(this.grabbedObject);
+        }
+        return;
+      }
+    }
+    
+    // 再检查 CAE 模型
+    if (this.mesh) {
+      const intersections = raycaster.intersectObject(this.mesh, true);
+      if (intersections.length > 0 && intersections[0]?.object) {
+        this.grabbedObject = intersections[0].object;
+        this.grabHand = controller ? `vr-${hand}` : 'desktop';
+        this.log(`已抓取: ${this.grabbedObject.name || this.grabbedObject.type}`);
+
+        if (controller) {
+          controller.attach(this.grabbedObject);
+        }
+      }
+    }
+  }
+
+  private handleGrabEnd(hand: string, controller?: THREE.Group): void {
+    this.log(`[${hand}] 抓取结束`);
+
+    if (this.grabbedObject) {
+      if (controller) {
+        const attachedObject = controller.children.find(
+          (child) => child.type === 'Mesh' && child.name !== 'line'
+        );
+        if (attachedObject) {
+          this.scene.attach(attachedObject as THREE.Object3D);
+        }
+      }
+
+      this.log('已释放物体');
+      this.grabbedObject = null;
+      this.grabHand = null;
+    }
+  }
+
+  private handleMove(delta: THREE.Vector2): void {
+    const speed = 0.05;
+    const direction = new THREE.Vector3(0, 0, -1);
+    direction.applyQuaternion(this.camera.quaternion);
+    direction.y = 0;
+    direction.normalize();
+
+    const strafe = new THREE.Vector3(-direction.z, 0, direction.x);
+    const target = this.camera.parent || this.camera;
+    target.position.addScaledVector(direction, -delta.y * speed);
+    target.position.addScaledVector(strafe, delta.x * speed);
+  }
+
+  private handleJump(): void {
+    const target = this.camera.parent || this.camera;
+    if (target.position.y <= this.groundLevel) {
+      this.verticalVelocity = this.jumpStrength;
+      this.log('跳跃!');
+    }
+  }
+
+  // 日志记录方法
+  private log(message: string): void {
+    if (this.debugPanel) {
+      this.debugPanel.log(message);
+    } else {
+      console.log(message);
+    }
+  }
+
+  // 设置VR会话监听器
+  private setupVRSessionListeners(): void {
+    this.renderer.xr.addEventListener('sessionstart', () => {
+      this.log('✓ 已进入 VR 模式');
+
+      // 禁用 OrbitControls
+      if (this.controls) {
+        this.controls.enabled = false;
+      }
+
+      // 隐藏 GUI（VR模式下不需要）
+      if (this.gui) {
+        this.gui.hide();
+      }
+
+      // 隐藏 debugPanel（如果存在）
+      if (this.debugPanel) {
+        this.debugPanel.hide();
+      }
+
+      // 进入VR：将相机从场景移到rig中
+      const worldPos = new THREE.Vector3();
+      this.camera.getWorldPosition(worldPos);
+
+      this.scene.remove(this.camera);
+      
+      // 计算合适的观看位置
+      if (this.mesh) {
+        // 让玩家站在CAE模型前合适的距离
+        const viewPos = this.caeModelCenter.clone();
+        viewPos.z += this.caeViewDistance;
+        viewPos.y = Math.max(viewPos.y, this.groundLevel);
+        this.vrPlayerRig.position.copy(viewPos);
+        this.log(`VR 玩家位置: ${viewPos.x.toFixed(1)}, ${viewPos.y.toFixed(1)}, ${viewPos.z.toFixed(1)}`);
+      } else {
+        this.vrPlayerRig.position.copy(worldPos);
+      }
+      
+      this.vrPlayerRig.add(this.camera);
+
+      // 相机在rig内的局部位置归零（头显会控制相对位置）
+      this.camera.position.set(0, 0, 0);
+
+      // 将控制器移动到VR Player Rig
+      this.moveControllersToParent(this.vrPlayerRig);
+      this.log('手柄已绑定到玩家');
+
+      // 调用用户自定义回调
+      this.onSessionStart?.();
+    });
+
+    this.renderer.xr.addEventListener('sessionend', () => {
+      this.log('✓ 已切换到桌面模式');
+
+      // 重新启用 OrbitControls
+      if (this.controls) {
+        this.controls.enabled = true;
+      }
+
+      // 显示 GUI
+      if (this.gui) {
+        this.gui.show();
+      }
+
+      // 显示 debugPanel（如果存在）
+      if (this.debugPanel) {
+        this.debugPanel.show();
+      }
+
+      // 退出VR：将相机从rig移回场景
+      const worldPos = new THREE.Vector3();
+      this.camera.getWorldPosition(worldPos);
+
+      this.vrPlayerRig.remove(this.camera);
+      this.scene.add(this.camera);
+      this.camera.position.copy(worldPos);
+
+      // 重置rig位置供下次使用
+      this.vrPlayerRig.position.set(0, 0, 0);
+
+      // 将控制器移回场景
+      this.moveControllersToParent(this.scene);
+
+      // 调用用户自定义回调
+      this.onSessionEnd?.();
+    });
+  }
+
+  // 更新VR状态（在动画循环中调用）
+  public update(): void {
+    // 应用重力和垂直速度
+    const target = this.camera.parent || this.camera;
+    this.verticalVelocity += this.gravity;
+    target.position.y += this.verticalVelocity;
+
+    // 地面碰撞检测
+    if (target.position.y < this.groundLevel) {
+      target.position.y = this.groundLevel;
+      this.verticalVelocity = 0;
+    }
+
+    // VR模式：处理摇杆输入和按键
+    [0, 1].forEach(index => {
+      const hand = index === 0 ? 'Left' : 'Right';
+      const gamepad = this.getGamepadState(index);
+
+      if (gamepad) {
+        const prevState = this.prevButtonStates.get(hand) || [];
+
+        // 检测每个按键变化
+        gamepad.buttons.forEach((button, btnIndex) => {
+          const wasPressed = prevState[btnIndex] || false;
+          const isPressed = button.pressed;
+
+        // 按下事件
+        if (isPressed && !wasPressed) {
+          const btnName = this.buttonNames[btnIndex as keyof typeof this.buttonNames] || `Button${btnIndex}`;
+          this.log(`[${hand}] ${btnName} 按下 ${btnIndex}`);
+
+          // A键跳跃（右手按钮4）
+          if (hand === 'Right' && btnIndex === 4) {
+            this.handleJump();
+          }
+        }
+        // 释放事件
+        else if (!isPressed && wasPressed) {
+          const btnName = this.buttonNames[btnIndex as keyof typeof this.buttonNames] || `Button${btnIndex}`;
+          this.log(`[${hand}] ${btnName} 释放 ${btnIndex}`);
+        }
+        });
+
+        // 保存当前状态
+        this.prevButtonStates.set(hand, gamepad.buttons.map(b => b.pressed));
+
+        // 摇杆移动（右手）
+        if (index === 1) {
+          const deadzone = 0.15;
+          if (Math.abs(gamepad.thumbstickX) > deadzone || Math.abs(gamepad.thumbstickY) > deadzone) {
+            this.handleMove(new THREE.Vector2(gamepad.thumbstickX, gamepad.thumbstickY));
+          }
+        }
+      }
+    });
+  }
+
+  // 更新网格对象（用于射线检测）
+  public setMesh(mesh: THREE.Mesh): void {
+    this.mesh = mesh;
+  }
+
+  // 更新控制器（用于切换VR模式时禁用/启用）
+  public setControls(controls: OrbitControls): void {
+    this.controls = controls;
+  }
+
+  // 更新GUI（用于切换VR模式时隐藏/显示）
+  public setGUI(gui: GUI): void {
+    this.gui = gui;
+  }
+
+  // 更新debugPanel
+  public setDebugPanel(debugPanel: VRDebugPanel): void {
+    this.debugPanel = debugPanel;
+  }
+
+  // 设置测试物体
+  public setTestObjects(testObjects: THREE.Mesh[]): void {
+    this.testObjects = testObjects;
+  }
+
+  // 设置CAE模型中心和观看距离
+  public setCaeModelInfo(center: THREE.Vector3, distance: number): void {
+    this.caeModelCenter = center;
+    this.caeViewDistance = distance;
+  }
+
+  // 获取当前被抓取的对象
+  public getGrabbedObject(): THREE.Object3D | null {
+    return this.grabbedObject;
+  }
+
+  // 清理资源
+  public dispose(): void {
+    // 移除事件监听器
+    this.renderer.xr.removeEventListener('sessionstart', () => {});
+    this.renderer.xr.removeEventListener('sessionend', () => {});
+
+    // 清理控制器
+    this.vrControllers.forEach(({ controller, controllerGrip }) => {
+      this.scene.remove(controller);
+      this.scene.remove(controllerGrip);
+    });
+
+    // 清理地面
+    if (this.ground) {
+      this.scene.remove(this.ground);
+    }
+
+    // 清理VR Player Rig
+    this.scene.remove(this.vrPlayerRig);
+  }
+}
+
+// 导出VRButton供外部使用
+export { VRButton };

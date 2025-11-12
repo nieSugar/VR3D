@@ -14,4 +14,5 @@ export default defineConfig({
     port: 3500,
     host: "0.0.0.0",
   },
+  assetsInclude: ['**/*.hdr'],
 });

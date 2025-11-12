@@ -11,16 +11,24 @@
     class="value-popover">
     {{ mapNumber(pointValue) }}
   </div>
+  <div ref="threeDguiRef">
+    <button @click="toggle3DGUI">切换3D GUI</button>
+    {{ is3DGUIVisible ? '3D GUI 可见' : '3D GUI 隐藏' }}
+  </div>
 </template>
 
 <script lang="ts" setup>
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { VRManager } from '../utils/VRManager';
+import { VRDebugPanel } from '../utils/VRDebugPanel';
 import GUI from 'lil-gui';
 import { Lut } from 'three/examples/jsm/math/Lut.js';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import { CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
+import { CSS3DRenderer, CSS3DSprite } from 'three/examples/jsm/renderers/CSS3DRenderer.js';
 import { onMounted, onUnmounted, ref, unref, watch } from 'vue';
+
 interface KvType {
   [key: string]: any;
 }
@@ -43,7 +51,6 @@ interface NewTask {
   unit?: string;
 }
 
-
 // 路由和响应式状态
 const showValuePopover = ref(false);
 const pointValue = ref(0);
@@ -57,11 +64,7 @@ const newTaskValues: Array<{
   valIsArray: boolean;
 }> = [];
 
-// let currentTime = '';
-// let nodeDownloadUrl: string | undefined;
-// let valDownloadUrl: string | undefined;
 let stlFileUrl: string | undefined;
-// let clipPath: string | undefined;
 
 // 参数相关
 const unit = ref();
@@ -91,14 +94,13 @@ watch(
 );
 
 // 帧数进度条相关
-// const sliderValue = ref(0);
 const frameNumber = ref(0);
-// let frameOptions: Array<string> = [];
 
 // 3D 场景与渲染相关
 const container = ref<HTMLDivElement>();
 const lutRef = ref<HTMLDivElement>();
 const shuzhiRef = ref<HTMLDivElement>();
+const threeDguiRef = ref<HTMLDivElement>();
 
 let perpCamera: THREE.PerspectiveCamera;
 let orthoCamera: THREE.OrthographicCamera;
@@ -113,6 +115,17 @@ let scene: THREE.Scene;
 let uiScene: THREE.Scene;
 let controls: OrbitControls;
 let label2dRenderer: CSS2DRenderer;
+let css3dRenderer: CSS3DRenderer;
+let css3dSprite: CSS3DSprite | null = null;
+const is3DGUIVisible = ref(true);
+
+// VR 相关
+let vrManager: VRManager;
+let debugPanel: VRDebugPanel;
+let ground: THREE.Mesh;
+let caeModelCenter = new THREE.Vector3(0, 0, 0); // CAE 模型中心位置
+let caeViewDistance = 5; // 观看 CAE 模型的合适距离
+const isVRMode = ref(false);
 
 let lut: Lut = new Lut();
 
@@ -178,9 +191,6 @@ const ColorMapKeywords = {
     [1.0, 0x000000]
   ]
 };
-Object.entries(ColorMapKeywords).forEach(([name, colormap]) => {
-  lut.addColorMap(name, colormap);
-});
 
 const params = {
   typenode: '',
@@ -193,8 +203,8 @@ const params = {
   planeX: { scope: 0, reversal: false, plan: false, maxValue: 0, newLen: 0, newMin: 0 },
   planeY: { scope: 0, reversal: false, plan: false, maxValue: 0, newLen: 0, newMin: 0 },
   planeZ: { scope: 0, reversal: false, plan: false, maxValue: 0, newLen: 0, newMin: 0 },
-  nodes: {},
-  nownode: [],
+  nodes: {} as Record<string, NewTask[]>,
+  nownode: [] as NewTask[],
   rotate: false,
   wireframe: false,
   segmentation: false
@@ -218,6 +228,26 @@ const mouse = new THREE.Vector2();
 const raycaster = new THREE.Raycaster();
 let setValueTimeout: number;
 
+const jsonstr = {
+  metadata: { version: 4, type: 'BufferGeometry' },
+  uuid: 'AF2ADB07-FBC5-4BAE-AD60-123456789ABC',
+  type: 'BufferGeometry',
+  data: {
+    index: { type: 'Uint32Array', array: [] as number[] },
+    attributes: {
+      position: { itemSize: 3, type: 'Float32Array', array: [] as number[] },
+      pressure: { itemSize: 1, type: 'Float32Array', array: [] as number[] }
+    }
+  }
+};
+
+// 切换3D GUI显示/隐藏
+function toggle3DGUI() {
+  is3DGUIVisible.value = !is3DGUIVisible.value;
+  if (css3dSprite) {
+    css3dSprite.visible = is3DGUIVisible.value;
+  }
+}
 
 function getValue() {
   window.addEventListener('mousemove', event => {
@@ -255,18 +285,14 @@ function getValue() {
   });
 }
 
-const jsonstr = {
-  metadata: { version: 4, type: 'BufferGeometry' },
-  uuid: 'AF2ADB07-FBC5-4BAE-AD60-123456789ABC',
-  type: 'BufferGeometry',
-  data: {
-    index: { type: 'Uint32Array', array: [] as number[] },
-    attributes: {
-      position: { itemSize: 3, type: 'Float32Array', array: [] as number[] },
-      pressure: { itemSize: 1, type: 'Float32Array', array: [] as number[] }
-    }
-  }
-};
+// 初始化调试面板
+function initDebugPanel() {
+  debugPanel = new VRDebugPanel(scene);
+  debugPanel.log('CAE 模型场景已启动');
+  debugPanel.log('桌面模式: 鼠标旋转视角');
+  debugPanel.log('VR 模式: 点击 "Enter VR" 按钮进入');
+  debugPanel.log('');
+}
 
 async function init() {
   scene = new THREE.Scene();
@@ -288,12 +314,21 @@ async function init() {
   orthoCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 2);
   orthoCamera.position.set(0.5, 0, 1);
 
-
+  // CSS2D 渲染器（用于标签）
   label2dRenderer = new CSS2DRenderer();
   label2dRenderer.setSize(window.innerWidth, window.innerHeight);
   label2dRenderer.domElement.style.position = 'absolute';
   label2dRenderer.domElement.style.top = '0';
+  label2dRenderer.domElement.style.pointerEvents = 'none';
   container.value?.appendChild(label2dRenderer.domElement);
+
+  // CSS3D 渲染器（用于3D GUI）
+  css3dRenderer = new CSS3DRenderer();
+  css3dRenderer.setSize(window.innerWidth, window.innerHeight);
+  css3dRenderer.domElement.style.position = 'absolute';
+  css3dRenderer.domElement.style.top = '0';
+  css3dRenderer.domElement.style.pointerEvents = 'none';
+  container.value?.appendChild(css3dRenderer.domElement);
 
   planes = [
     new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0),
@@ -308,10 +343,7 @@ async function init() {
       metalness: 0,
       roughness: 0,
       vertexColors: true,
-      // clipping: true,
       clippingPlanes: planes,
-      // renderOrder: 0,
-      // uniforms: { iTime: { value: 0.5 } }
     })
   );
 
@@ -376,14 +408,33 @@ async function init() {
   renderer.autoClear = false;
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.setSize(width, height);
-  container.value?.appendChild(renderer.domElement);
   renderer.localClippingEnabled = true;
+  container.value?.appendChild(renderer.domElement);
 
   window.addEventListener('resize', onWindowResize, false);
 
-  controls = new OrbitControls(perpCamera, label2dRenderer.domElement);
+  // 控制器绑定到 renderer.domElement
+  controls = new OrbitControls(perpCamera, renderer.domElement);
   controls.target.set(3.6103746175409768, 0.9974999792213453, 1.42597205139674);
   controls.update();
+
+  // 添加地面 - 增大尺寸以适应VR空间
+  const groundGeometry = new THREE.PlaneGeometry(50, 50);
+  const groundMaterial = new THREE.MeshStandardMaterial({
+    color: 0x2d2d44,
+    roughness: 0.8,
+    metalness: 0.2
+  });
+  ground = new THREE.Mesh(groundGeometry, groundMaterial);
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.y = 0;
+  ground.receiveShadow = true;
+  scene.add(ground);
+  
+  // 添加网格线帮助定位
+  const gridHelper = new THREE.GridHelper(50, 50, 0x444466, 0x222244);
+  gridHelper.position.y = 0.01; // 稍微抬高避免Z-fighting
+  scene.add(gridHelper);
 
   // 加载节点数据和数值数据
   const [nodeResponse, valueResponse] = await Promise.all([
@@ -398,7 +449,6 @@ async function init() {
       const material = new THREE.MeshPhongMaterial({
         color: 0xed9d9d9,
         specular: 0x494949,
-        // clipping: true,
         clippingPlanes: planes,
         shininess: 200
       });
@@ -411,6 +461,10 @@ async function init() {
   taskvals.push(...valueResponse);
   mapTaskData();
   showTaskList.value = unref(tasks).length > 1;
+  
+  // 初始化调试面板
+  initDebugPanel();
+  
   loadJson();
 }
 
@@ -418,60 +472,68 @@ function loadJson() {
   loadModel((type: string[]) => {
     console.log(type, 'type');
     const bbox = new THREE.Box3().setFromObject(mesh);
-    // if (gui != null) gui.destroy();
-    // gui = new GUI();
 
     const planeX = gui.addFolder('X');
-    planes[0].constant = bbox.max.x + bbox.max.x * 0.1 + 10;
+    if (planes[0]) planes[0].constant = bbox.max.x + bbox.max.x * 0.1 + 10;
     planeX
       .add(params.planeX, 'plan')
       .name('面板')
-      .onChange(v => (planeHelpers[0].visible = v));
+      .onChange((v: boolean) => {
+        if (planeHelpers[0]) planeHelpers[0].visible = v;
+      });
     planeX
       .add(params.planeX, 'scope')
       .name('范围')
       .setValue(bbox.max.x + bbox.max.x * 0.1)
       .min(bbox.min.x + bbox.min.x * 0.1)
       .max(bbox.max.x + bbox.max.x * 0.1)
-      .onChange(d => (planes[0].constant = d));
+      .onChange((d: number) => {
+        if (planes[0]) planes[0].constant = d;
+      });
     planeX.open();
 
     const planeY = gui.addFolder('Y');
-    planes[1].constant = bbox.max.y + bbox.max.y * 0.1 + 10;
+    if (planes[1]) planes[1].constant = bbox.max.y + bbox.max.y * 0.1 + 10;
     planeY
       .add(params.planeY, 'plan')
       .name('面板')
-      .onChange(v => (planeHelpers[1].visible = v));
+      .onChange((v: boolean) => {
+        if (planeHelpers[1]) planeHelpers[1].visible = v;
+      });
     planeY
       .add(params.planeY, 'scope')
       .name('范围')
       .setValue(bbox.max.y + bbox.max.y * 0.1)
       .min(bbox.min.y + bbox.min.y * 0.1)
       .max(bbox.max.y + bbox.max.y * 0.1)
-      .onChange(d => (planes[1].constant = d));
+      .onChange((d: number) => {
+        if (planes[1]) planes[1].constant = d;
+      });
     planeY.open();
 
     const planeZ = gui.addFolder('Z');
-    planes[2].constant = bbox.max.z + bbox.max.z * 0.1 + 10;
+    if (planes[2]) planes[2].constant = bbox.max.z + bbox.max.z * 0.1 + 10;
     planeZ
       .add(params.planeZ, 'plan')
       .name('面板')
-      .onChange(v => (planeHelpers[2].visible = v));
+      .onChange((v: boolean) => {
+        if (planeHelpers[2]) planeHelpers[2].visible = v;
+      });
     planeZ
       .add(params.planeZ, 'scope')
       .name('范围')
       .setValue(bbox.max.z + bbox.max.z * 0.1)
       .min(bbox.min.z + bbox.min.z * 0.1)
       .max(bbox.max.z + bbox.max.z * 0.1)
-      .onChange(d => (planes[2].constant = d));
+      .onChange((d: number) => {
+        if (planes[2]) planes[2].constant = d;
+      });
     planeZ.open();
+    
     gui
       .add(params, 'animate')
       .name('动画')
-      .setValue(false)
-      .onChange(() => {
-        playtimes();
-      });
+      .setValue(false);
     gui
       .add(params, 'rotate')
       .name('自动旋转')
@@ -484,18 +546,20 @@ function loadJson() {
       .name('线框')
       .setValue(false)
       .onChange(() => {
-        mesh.material.wireframe = params.wireframe;
-        mesh.material.needsUpdate = true;
+        const material = mesh.material as THREE.MeshStandardMaterial;
+        material.wireframe = params.wireframe;
+        material.needsUpdate = true;
       });
     gui
       .add(params, 'segmentation')
       .name('分割')
       .setValue(false)
       .onChange(() => {
-        mesh.material.ribbon = params.segmentation;
+        const material = mesh.material as any;
+        material.ribbon = params.segmentation;
         params.colorMap = 'grayscale';
         updateColors();
-        mesh.material.needsUpdate = true;
+        material.needsUpdate = true;
         colorMapController?.updateDisplay();
       });
 
@@ -514,7 +578,7 @@ function loadJson() {
       .add(params, 'typenode', type)
       .setValue(type[0])
       .onChange(function () {
-        params.nownode = [...params.nodes[params.typenode]];
+        params.nownode = [...params.nodes[params.typenode] || []];
         getFrameNumber();
         updateTimes();
       });
@@ -529,7 +593,6 @@ function updateTimes() {
       if (val && val.val) {
         const geometry = mesh!.geometry as THREE.BufferGeometry
         geometry.setAttribute('pressure', new THREE.Float32BufferAttribute(val.val, 1));
-        // (mesh!.geometry as THREE.BufferGeometry).attributes.pressure!.array = val.val;
         maxval = getMaxOrMin(val.val, 'max');
         minval = getMaxOrMin(val.val, 'min');
         shuzhi(maxval, minval);
@@ -602,7 +665,6 @@ function loadModel(callback: (type: string[]) => void) {
   jsonstr.data.index.array = nodeParam.indexs as number[];
   jsonstr.data.attributes.position.array = nodeParam.nodes as number[];
   jsonstr.data.attributes.pressure.array = taskData.val || [];
-  // currentTime = data[0]!.key ?? '';
 
   maxval = getMaxOrMin(taskData.val ?? [], 'max');
   minval = getMaxOrMin(taskData.val ?? [], 'min');
@@ -610,6 +672,18 @@ function loadModel(callback: (type: string[]) => void) {
 
   const loader = new THREE.BufferGeometryLoader();
   const geometry = loader.parse(jsonstr);
+
+  geometry.computeBoundingBox();
+  const bbox = geometry.boundingBox!;
+  const offsetY = -bbox.min.y;
+  const positionAttr = geometry.attributes.position;
+  if (positionAttr) {
+    const positions = positionAttr.array as Float32Array;
+    for (let i = 1; i < positions.length; i += 3) {
+      positions[i] = (positions[i] ?? 0) + offsetY;
+    }
+    positionAttr.needsUpdate = true;
+  }
 
   const colors = [];
   const positionCount = geometry.attributes.position?.count ?? 0;
@@ -623,16 +697,20 @@ function loadModel(callback: (type: string[]) => void) {
   applyBoxUV(mesh.geometry);
   focusObj(mesh);
 
+  // 更新 VRManager 的 mesh 引用
+  if (vrManager) {
+    vrManager.updateMesh(mesh);
+  }
+
   const type: string[] = [];
   newTaskValues.forEach(v => {
     type.push(v.name);
-    if ((params.nodes as any)[v.name] == undefined) {
-      (params.nodes as any)[v.name] = v.value;
+    if (params.nodes[v.name] == undefined) {
+      params.nodes[v.name] = v.value;
     }
   });
   const firstType = type[0];
-  params.nownode = firstType ? ((params.nodes as any)[firstType] ?? []) : [];
-  // frameOptions = params.nownode.map(v => v.key ?? '');
+  params.nownode = firstType ? (params.nodes[firstType] ?? []) : [];
   getFrameNumber();
   updateColors();
   callback(type);
@@ -856,17 +934,18 @@ function onWindowResize() {
   perpCamera.updateProjectionMatrix();
 
   renderer.setSize(width, height);
+  label2dRenderer.setSize(width, height);
+  css3dRenderer.setSize(width, height);
 }
 
 function animate() {
-  requestAnimationFrame(animate);
-
   if (params.rotate) {
     controls.update();
   }
 
   uniforms.iTime.value++;
 
+  // 更新剖切平面位置
   for (let i = 0; i < planeObjects.length; i++) {
     const plane = planes[i];
     const po = planeObjects[i];
@@ -876,10 +955,17 @@ function animate() {
     }
   }
 
-  label2dRenderer.render(scene, perpCamera);
+  // 更新 VR 管理器
+  if (vrManager) {
+    vrManager.update();
+  }
+
+  // 重要：渲染顺序
   renderer.clear();
   renderer.render(scene, perpCamera);
   renderer.render(uiScene, orthoCamera);
+  label2dRenderer.render(scene, perpCamera);
+  css3dRenderer.render(scene, perpCamera);
 }
 
 function chunkArray(arr: number[], chunkSize: number) {
@@ -916,6 +1002,15 @@ function focusObj(target: THREE.Object3D) {
   } else {
     center.setFromMatrixPosition(target.matrixWorld);
     distance = 0.1;
+  }
+
+  // 保存模型信息供 VR 模式使用
+  caeModelCenter.copy(center);
+  caeViewDistance = distance * 2;
+
+  // 更新 VRManager 的模型参数
+  if (vrManager) {
+    vrManager.updateModelParams(caeModelCenter, caeViewDistance);
   }
 
   delta.set(0, 0, 1);
@@ -971,14 +1066,102 @@ function mapTaskData() {
   console.log(newTaskValues, 'newTaskValues');
 }
 
+// 创建和设置 CSS3DSprite
+function setupCSS3DSprite() {
+  if (!gui || !gui.domElement) {
+    console.error('GUI 未初始化');
+    return;
+  }
+
+  // 创建包装器 div
+  const guiWrapper = document.createElement('div');
+  guiWrapper.style.width = '300px';
+  guiWrapper.style.height = '400px';
+  guiWrapper.style.background = 'rgba(0, 0, 0, 0.7)';
+  guiWrapper.style.borderRadius = '8px';
+  guiWrapper.style.padding = '10px';
+  guiWrapper.style.pointerEvents = 'auto';
+  
+  // 将 GUI 移到包装器中
+  guiWrapper.appendChild(gui.domElement);
+  
+  // 设置 GUI 样式
+  gui.domElement.style.position = 'relative';
+  gui.domElement.style.top = '0';
+  gui.domElement.style.right = '0';
+  gui.domElement.style.margin = '0';
+
+  // 创建 CSS3DSprite
+  css3dSprite = new CSS3DSprite(guiWrapper);
+  
+  // 设置位置和缩放
+  css3dSprite.position.set(5, 2, -5);
+  css3dSprite.scale.set(0.01, 0.01, 0.01);
+  
+  scene.add(css3dSprite);
+  
+  console.log('CSS3DSprite 已创建并添加到场景');
+}
+
 onMounted(async () => {
-  init();
-  animate();
+  await init();
+
+  // 初始化 VR 管理器
+  vrManager = new VRManager({
+    renderer,
+    scene,
+    camera: perpCamera,
+    controls,
+    gui: gui || undefined,
+    mesh: mesh || undefined,
+    debugPanel,
+    testObjects: [],
+    caeModelCenter,
+    caeViewDistance,
+    onSessionStart: () => {
+      isVRMode.value = true;
+      debugPanel.hide();
+      // 隐藏 3D GUI
+      if (css3dSprite) {
+        css3dSprite.visible = false;
+      }
+    },
+    onSessionEnd: () => {
+      isVRMode.value = false;
+      debugPanel.show();
+      // 显示 3D GUI
+      if (css3dSprite) {
+        css3dSprite.visible = true;
+      }
+    }
+  });
+  
+  if (container.value) {
+    vrManager.init(container.value);
+  }
+
+  renderer.setAnimationLoop(animate);
+
+  // 等待 GUI 初始化后再创建 CSS3DSprite
+  setTimeout(() => {
+    setupCSS3DSprite();
+  }, 1000);
+
   getValue();
 });
 
 onUnmounted(() => {
+  renderer?.setAnimationLoop(null);
   gui?.destroy();
+  
+  if (vrManager) {
+    vrManager.dispose();
+  }
+  
+  if (css3dSprite) {
+    scene.remove(css3dSprite);
+    css3dSprite = null;
+  }
 });
 </script>
 
