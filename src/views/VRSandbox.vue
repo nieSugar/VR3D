@@ -10,19 +10,23 @@ import { XRControllerModelFactory } from 'three/examples/jsm/webxr/XRControllerM
 import { GUI } from 'lil-gui'
 import Stats from 'three/examples/jsm/libs/stats.module.js'
 import hdrTexture from '../assets/moonless_golf_1k.hdr'
+import { createMaterialSelectUI } from '../utils/htmlMeshUtils'
 
 const container = ref<HTMLDivElement | null>(null)
-const showGUI = ref(true)
 
 let camera: THREE.PerspectiveCamera
 let scene: THREE.Scene
 let renderer: THREE.WebGLRenderer
 let reflector: Reflector
-let stats: Stats
-let statsMesh: HTMLMesh
+
+const stats = new Stats()
+stats.dom.style.width = '80px'
+stats.dom.style.height = '48px'
+document.body.appendChild(stats.dom)
+
 let animationId: number | null = null
 let gui: GUI | null = null
-let guiMesh: HTMLMesh | null = null
+let materialSelectMesh: HTMLMesh | null = null
 let torus: THREE.Mesh | null = null
 
 const parameters = {
@@ -357,28 +361,25 @@ function init() {
   scene.add(group)
 
   // GUI 网格
-  guiMesh = new HTMLMesh(gui.domElement)
-  guiMesh.position.x = -0.75
-  guiMesh.position.y = 1.5
-  guiMesh.position.z = -0.5
-  guiMesh.rotation.y = Math.PI / 4
-  guiMesh.scale.setScalar(2)
-  guiMesh.visible = showGUI.value
-  group.add(guiMesh)
+  // guiMesh = new HTMLMesh(gui.domElement)
+  // guiMesh.position.x = -0.75
+  // guiMesh.position.y = 1.5
+  // guiMesh.position.z = -0.5
+  // guiMesh.rotation.y = Math.PI / 4
+  // guiMesh.scale.setScalar(2)
+  // guiMesh.visible = showGUI.value
+  // group.add(guiMesh)
 
-  // 添加 Stats
-  stats = new Stats()
-  stats.dom.style.width = '80px'
-  stats.dom.style.height = '48px'
-  document.body.appendChild(stats.dom)
 
-  statsMesh = new HTMLMesh(stats.dom)
-  statsMesh.position.x = -0.75
-  statsMesh.position.y = 2
-  statsMesh.position.z = -0.6
-  statsMesh.rotation.y = Math.PI / 4
-  statsMesh.scale.setScalar(2.5)
-  group.add(statsMesh)
+  // 创建材质选择器和checkbox UI
+  const materialUIResult = createMaterialSelectUI(
+    parameters,
+    onMaterialChange,
+    onModelVisibilityChange,
+    container.value,
+    group
+  )
+  materialSelectMesh = materialUIResult.materialSelectMesh
 
   window.addEventListener('resize', onWindowResize)
 }
@@ -398,12 +399,13 @@ function animate() {
     torus.rotation.y = time
   }
 
-  renderer.render(scene, camera)
   stats.update()
+  renderer.render(scene, camera)
 
-  // Canvas 元素不会触发 DOM 更新，所以我们必须更新纹理
-  if (statsMesh && statsMesh.material && statsMesh.material.map) {
-    statsMesh.material.map.onUpdate?.(statsMesh.material.map)
+
+  // 更新材质选择器HTMLMesh纹理
+  if (materialSelectMesh && materialSelectMesh.material && materialSelectMesh.material.map) {
+    materialSelectMesh.material.map.needsUpdate = true
   }
 }
 
@@ -418,15 +420,18 @@ function cleanup() {
     vrButton.remove()
   }
 
-  // 清理 Stats
-  if (stats && stats.dom) {
-    stats.dom.remove()
-  }
-
   // 清理 GUI
   const guiElement = document.querySelector('.lil-gui')
   if (guiElement) {
     guiElement.remove()
+  }
+
+  // 清理材质选择器
+  if (materialSelectMesh && materialSelectMesh.material.map) {
+    const img = materialSelectMesh.material.map.image as HTMLElement
+    if (img && img.parentElement) {
+      img.parentElement.remove()
+    }
   }
 
   // 清理渲染器
