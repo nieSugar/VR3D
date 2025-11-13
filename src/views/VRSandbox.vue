@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import * as THREE from 'three'
 import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js'
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js'
@@ -11,8 +11,12 @@ import { GUI } from 'lil-gui'
 import Stats from 'three/examples/jsm/libs/stats.module.js'
 import hdrTexture from '../assets/moonless_golf_1k.hdr'
 import { createMaterialSelectUI } from '../utils/htmlMeshUtils'
+import CustomCheckbox from '../components/CustomCheckbox.vue'
+import CustomSelect, { type SelectOption } from '../components/CustomSelect.vue'
+import CustomSlider from '../components/CustomSlider.vue'
 
 const container = ref<HTMLDivElement | null>(null)
+const bodyRef = ref<HTMLElement | null>(null)
 
 let camera: THREE.PerspectiveCamera
 let scene: THREE.Scene
@@ -27,9 +31,11 @@ document.body.appendChild(stats.dom)
 let animationId: number | null = null
 let gui: GUI | null = null
 let materialSelectMesh: HTMLMesh | null = null
+let bodyMesh: HTMLMesh | null = null
+let guiMesh: HTMLMesh | null = null
 let torus: THREE.Mesh | null = null
 
-const parameters = {
+const parameters = reactive({
   radius: 0.6,
   tube: 0.2,
   tubularSegments: 150,
@@ -42,7 +48,23 @@ const parameters = {
   preset: 'custom',  // 预设形状
   colorScheme: 'environment',  // 颜色方案
   animationSpeed: 1.0  // 动画速度
-}
+})
+
+const materials: SelectOption[] = [
+  { value: "glass", label: "玻璃" },
+  { value: "metal", label: "金属" },
+  { value: "plastic", label: "塑料" },
+  { value: "wireframe", label: "线框" },
+  { value: "normal", label: "法线" },
+];
+
+watch(() => parameters.showModel, (newVal) => {
+  onModelVisibilityChange();
+})
+
+watch(() => parameters.materialType, (newVal) => {
+  onMaterialChange();
+})
 
 function init() {
   if (!container.value) return
@@ -146,160 +168,7 @@ function init() {
   controllerGrip2.add(controllerModelFactory.createControllerModel(controllerGrip2))
   scene.add(controllerGrip2)
 
-  // GUI 设置
-  function onChange() {
-    if (torus) {
-      torus.geometry.dispose()
-      torus.geometry = new THREE.TorusKnotGeometry(
-        parameters.radius,
-        parameters.tube,
-        parameters.tubularSegments,
-        parameters.radialSegments,
-        parameters.p,
-        parameters.q
-      )
-    }
-  }
 
-  function onThicknessChange() {
-    if (torus) {
-      ; (torus.material as THREE.MeshPhysicalMaterial).thickness = parameters.thickness
-    }
-  }
-
-  function onModelVisibilityChange() {
-    if (torus) {
-      torus.visible = parameters.showModel;
-
-      gui?.controllers?.forEach((controller: any) => {
-        controller.updateDisplay()
-      })
-    }
-  }
-
-  // 材质类型切换
-  function onMaterialChange() {
-    if (!torus) return
-
-    const oldMaterial = torus.material as THREE.Material
-    oldMaterial.dispose()
-
-    switch (parameters.materialType) {
-      case 'glass':
-        torus.material = new THREE.MeshPhysicalMaterial({
-          transmission: 1.0,
-          roughness: 0,
-          metalness: 0.25,
-          thickness: parameters.thickness,
-          side: THREE.DoubleSide
-        })
-        break
-      case 'metal':
-        torus.material = new THREE.MeshStandardMaterial({
-          metalness: 1.0,
-          roughness: 0.2,
-          envMapIntensity: 1.0,
-          side: THREE.DoubleSide
-        })
-        break
-      case 'plastic':
-        torus.material = new THREE.MeshPhongMaterial({
-          shininess: 100,
-          specular: 0x222222,
-          side: THREE.DoubleSide
-        })
-        break
-      case 'wireframe':
-        torus.material = new THREE.MeshBasicMaterial({
-          wireframe: true,
-          color: 0x00ff00
-        })
-        break
-      case 'normal':
-        torus.material = new THREE.MeshNormalMaterial({
-          side: THREE.DoubleSide
-        })
-        break
-    }
-  }
-
-  // 预设形状切换
-  function onPresetChange() {
-    switch (parameters.preset) {
-      case 'torus':
-        parameters.p = 1
-        parameters.q = 0
-        parameters.radius = 0.7
-        parameters.tube = 0.3
-        break
-      case 'trefoil':
-        parameters.p = 2
-        parameters.q = 3
-        parameters.radius = 0.6
-        parameters.tube = 0.2
-        break
-      case 'figure8':
-        parameters.p = 3
-        parameters.q = 2
-        parameters.radius = 0.65
-        parameters.tube = 0.15
-        break
-      case 'cinquefoil':
-        parameters.p = 2
-        parameters.q = 5
-        parameters.radius = 0.6
-        parameters.tube = 0.1
-        break
-      case 'granny':
-        parameters.p = 3
-        parameters.q = 4
-        parameters.radius = 0.5
-        parameters.tube = 0.15
-        break
-      case 'custom':
-        // 保持当前参数不变
-        break
-    }
-
-    if (parameters.preset !== 'custom') {
-      onChange()
-      // 更新GUI显示
-      if (gui && gui.controllers) {
-        gui.controllers.forEach((controller: any) => {
-          controller.updateDisplay()
-        })
-      }
-    }
-  }
-
-  // 颜色方案切换
-  function onColorSchemeChange() {
-    if (!torus) return
-
-    const material = torus.material as any
-
-    switch (parameters.colorScheme) {
-      case 'environment':
-        // 使用环境贴图颜色
-        if (material.color) material.color = new THREE.Color(0xffffff)
-        break
-      case 'red':
-        if (material.color) material.color = new THREE.Color(0xff0000)
-        break
-      case 'blue':
-        if (material.color) material.color = new THREE.Color(0x0066ff)
-        break
-      case 'green':
-        if (material.color) material.color = new THREE.Color(0x00ff00)
-        break
-      case 'gold':
-        if (material.color) material.color = new THREE.Color(0xffd700)
-        break
-      case 'purple':
-        if (material.color) material.color = new THREE.Color(0x9b59b6)
-        break
-    }
-  }
 
   gui = new GUI({ width: 350 })
 
@@ -360,28 +229,193 @@ function init() {
   group.listenToXRControllerEvents(controller2)
   scene.add(group)
 
+  // console.log(bodyRef.value, 'bodyRef');
+
+  bodyMesh = new HTMLMesh(bodyRef.value!)
+  bodyMesh.position.x = 0.75;
+  bodyMesh.position.y = 1.5;
+  bodyMesh.position.z = -0.5;
+  bodyMesh.rotation.y = -Math.PI / 4;
+  bodyMesh.scale.setScalar(2);
+  group.add(bodyMesh)
+
+
   // GUI 网格
-  // guiMesh = new HTMLMesh(gui.domElement)
+  // const guiMesh = new HTMLMesh(gui.domElement)
   // guiMesh.position.x = -0.75
   // guiMesh.position.y = 1.5
   // guiMesh.position.z = -0.5
   // guiMesh.rotation.y = Math.PI / 4
   // guiMesh.scale.setScalar(2)
-  // guiMesh.visible = showGUI.value
   // group.add(guiMesh)
 
 
   // 创建材质选择器和checkbox UI
-  const materialUIResult = createMaterialSelectUI(
-    parameters,
-    onMaterialChange,
-    onModelVisibilityChange,
-    container.value,
-    group
-  )
-  materialSelectMesh = materialUIResult.materialSelectMesh
+  // const materialUIResult = createMaterialSelectUI(
+  //   parameters,
+  //   onMaterialChange,
+  //   onModelVisibilityChange,
+  //   onChange,
+  //   container.value,
+  //   group
+  // )
+  // materialSelectMesh = materialUIResult.materialSelectMesh
 
   window.addEventListener('resize', onWindowResize)
+}
+
+
+// GUI 设置
+function onChange() {
+  if (torus) {
+    torus.geometry.dispose()
+    torus.geometry = new THREE.TorusKnotGeometry(
+      parameters.radius,
+      parameters.tube,
+      parameters.tubularSegments,
+      parameters.radialSegments,
+      parameters.p,
+      parameters.q
+    )
+  }
+}
+
+function onThicknessChange() {
+  if (torus) {
+    ; (torus.material as THREE.MeshPhysicalMaterial).thickness = parameters.thickness
+  }
+}
+
+function onModelVisibilityChange() {
+  console.log(parameters.showModel, 'parameters.showModel');
+
+  if (torus) {
+    torus.visible = parameters.showModel;
+  }
+}
+
+// 材质类型切换
+function onMaterialChange() {
+  if (!torus) return
+
+  const oldMaterial = torus.material as THREE.Material
+  oldMaterial.dispose()
+
+  switch (parameters.materialType) {
+    case 'glass':
+      torus.material = new THREE.MeshPhysicalMaterial({
+        transmission: 1.0,
+        roughness: 0,
+        metalness: 0.25,
+        thickness: parameters.thickness,
+        side: THREE.DoubleSide
+      })
+      break
+    case 'metal':
+      torus.material = new THREE.MeshStandardMaterial({
+        metalness: 1.0,
+        roughness: 0.2,
+        envMapIntensity: 1.0,
+        side: THREE.DoubleSide
+      })
+      break
+    case 'plastic':
+      torus.material = new THREE.MeshPhongMaterial({
+        shininess: 100,
+        specular: 0x222222,
+        side: THREE.DoubleSide
+      })
+      break
+    case 'wireframe':
+      torus.material = new THREE.MeshBasicMaterial({
+        wireframe: true,
+        color: 0x00ff00
+      })
+      break
+    case 'normal':
+      torus.material = new THREE.MeshNormalMaterial({
+        side: THREE.DoubleSide
+      })
+      break
+  }
+}
+
+// 预设形状切换
+function onPresetChange() {
+  switch (parameters.preset) {
+    case 'torus':
+      parameters.p = 1
+      parameters.q = 0
+      parameters.radius = 0.7
+      parameters.tube = 0.3
+      break
+    case 'trefoil':
+      parameters.p = 2
+      parameters.q = 3
+      parameters.radius = 0.6
+      parameters.tube = 0.2
+      break
+    case 'figure8':
+      parameters.p = 3
+      parameters.q = 2
+      parameters.radius = 0.65
+      parameters.tube = 0.15
+      break
+    case 'cinquefoil':
+      parameters.p = 2
+      parameters.q = 5
+      parameters.radius = 0.6
+      parameters.tube = 0.1
+      break
+    case 'granny':
+      parameters.p = 3
+      parameters.q = 4
+      parameters.radius = 0.5
+      parameters.tube = 0.15
+      break
+    case 'custom':
+      // 保持当前参数不变
+      break
+  }
+
+  if (parameters.preset !== 'custom') {
+    onChange()
+    // 更新GUI显示
+    if (gui && gui.controllers) {
+      gui.controllers.forEach((controller: any) => {
+        controller.updateDisplay()
+      })
+    }
+  }
+}
+
+// 颜色方案切换
+function onColorSchemeChange() {
+  if (!torus) return
+
+  const material = torus.material as any
+
+  switch (parameters.colorScheme) {
+    case 'environment':
+      // 使用环境贴图颜色
+      if (material.color) material.color = new THREE.Color(0xffffff)
+      break
+    case 'red':
+      if (material.color) material.color = new THREE.Color(0xff0000)
+      break
+    case 'blue':
+      if (material.color) material.color = new THREE.Color(0x0066ff)
+      break
+    case 'green':
+      if (material.color) material.color = new THREE.Color(0x00ff00)
+      break
+    case 'gold':
+      if (material.color) material.color = new THREE.Color(0xffd700)
+      break
+    case 'purple':
+      if (material.color) material.color = new THREE.Color(0x9b59b6)
+      break
+  }
 }
 
 
@@ -406,6 +440,14 @@ function animate() {
   // 更新材质选择器HTMLMesh纹理
   if (materialSelectMesh && materialSelectMesh.material && materialSelectMesh.material.map) {
     materialSelectMesh.material.map.needsUpdate = true
+  }
+
+  if (bodyMesh && bodyMesh.material && bodyMesh.material.map) {
+    bodyMesh.material.map.needsUpdate = true
+  }
+
+  if (guiMesh && guiMesh.material && guiMesh.material.map) {
+    guiMesh.material.map.needsUpdate = true
   }
 }
 
@@ -457,6 +499,11 @@ onUnmounted(() => {
 <template>
   <div ref="container" class="vr-sandbox-container">
 
+    <div ref="bodyRef" class="gui-container">
+      <CustomSelect v-model="parameters.materialType" label="材质类型" :options="materials" />
+      <CustomCheckbox v-model="parameters.showModel" label="显示模型" />
+      <CustomSlider v-model="parameters.animationSpeed" :min="0" :max="3" :step="0.1" />
+    </div>
   </div>
 </template>
 
@@ -468,36 +515,14 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
-.controls-hint {
-  position: absolute;
-  top: 20px;
-  left: 20px;
-  color: white;
-  background: rgba(0, 0, 0, 0.6);
-  padding: 10px 15px;
-  border-radius: 8px;
-  font-size: 14px;
-  z-index: 100;
-  pointer-events: none;
-  backdrop-filter: blur(10px);
-}
-
-.controls-hint p {
-  margin: 0 0 5px 0;
-}
-
-.controls-hint p:last-child {
-  margin-bottom: 0;
-}
-
-.controls-hint kbd {
-  display: inline-block;
-  padding: 3px 6px;
-  background: rgba(255, 255, 255, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 4px;
-  font-family: monospace;
-  font-weight: bold;
-  margin: 0 3px;
+.gui-container {
+  height: 30rem;
+  background-color: rgba(30, 30, 30, 0.95);
+  position: fixed;
+  top: 50px;
+  left: 0px;
+  cursor: pointer;
+  opacity: 0.9;
+  z-index: 10000;
 }
 </style>

@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import CustomSlider from './CustomSlider.vue';
+const val = ref(10);
 
 const router = useRouter()
 const route = useRoute()
@@ -31,35 +33,27 @@ const shouldShowNav = computed(() => {
     <div class="nav-container">
       <div class="logo" @click="navigate('/')">
         <span class="logo-text">VR3D</span>
-      </div>
+        <!-- <button class="menu-toggle" @click="toggleMenu" :class="{ active: isMenuOpen }">
+          <span></span>
+          <span></span>
+          <span></span>
+        </button>
 
-      <button class="menu-toggle" @click="toggleMenu" :class="{ active: isMenuOpen }">
-        <span></span>
-        <span></span>
-        <span></span>
-      </button>
-
-      <div class="nav-links" :class="{ open: isMenuOpen }">
-        <a 
-          @click="navigate('/')" 
-          :class="{ active: isActive('/') }"
-        >
-          首页
-        </a>
-        <a 
-          @click="navigate('/vr-scene')" 
-          :class="{ active: isActive('/vr-scene') }"
-        >
-          VR 场景
-        </a>
-        <a 
-          @click="navigate('/dom-overlay')" 
-          :class="{ active: isActive('/dom-overlay') }"
-        >
-          DOM Overlay
-        </a>
+        <div class="nav-links" :class="{ open: isMenuOpen }">
+          <a @click="navigate('/')" :class="{ active: isActive('/') }">
+            首页
+          </a>
+          <a @click="navigate('/vr-scene')" :class="{ active: isActive('/vr-scene') }">
+            VR 场景
+          </a>
+          <a @click="navigate('/dom-overlay')" :class="{ active: isActive('/dom-overlay') }">
+            DOM Overlay
+          </a>
+        </div> -->
       </div>
     </div>
+    
+    <CustomSlider v-model="val" :min="0" :max="100" :step="0.1" />
   </nav>
 </template>
 
@@ -207,4 +201,3 @@ const shouldShowNav = computed(() => {
   }
 }
 </style>
-
