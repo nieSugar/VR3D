@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { onMounted, onUnmounted, reactive, ref, watch, computed } from 'vue'
 import * as THREE from 'three'
 import { HDRLoader } from 'three/examples/jsm/loaders/HDRLoader.js'
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js'
@@ -62,6 +62,22 @@ const materials: SelectOption[] = [
   { value: "normal2", label: "法线2" },
 ];
 
+// 动态预设选项
+const presetOptions = ref<SelectOption[]>([
+  { value: 'custom', label: '自定义' },
+  { value: 'torus', label: '圆环' },
+  { value: 'trefoil', label: '三叶结' },
+  { value: 'figure8', label: '8字结' },
+  { value: 'cinquefoil', label: '五叶结' },
+  { value: 'granny', label: '奶奶结' },
+  { value: 'septfoil', label: '七叶结' },
+  { value: 'turks', label: '土耳其结' },
+  { value: 'helix', label: '螺旋形' },
+  { value: 'star', label: '星形结' },
+  { value: 'pretzel', label: '椒盐卷结' },
+  { value: 'square', label: '方形结' }
+]);
+
 watch(() => parameters.showModel, () => {
   onModelVisibilityChange();
 })
@@ -69,6 +85,68 @@ watch(() => parameters.showModel, () => {
 watch(() => parameters.materialType, () => {
   onMaterialChange();
 })
+
+watch(() => parameters.preset, () => {
+  onPresetChange();
+})
+
+// 伪select状态管理
+const isDropdownOpen = ref(false)
+const fakeSelectRef = ref<HTMLElement | null>(null)
+const dropdownStyle = ref({ top: '0px', left: '0px', width: '0px' })
+
+const selectedPreset = computed(() => {
+  const option = presetOptions.value.find(p => p.value === parameters.preset)
+  return option?.label || '自定义'
+})
+
+function updateDropdownPosition() {
+  if (fakeSelectRef.value) {
+    const selectElement = fakeSelectRef.value.querySelector('.fake-select')
+    const selectRect = selectElement?.getBoundingClientRect()
+    const containerRect = bodyRef.value?.getBoundingClientRect()
+
+    if (selectRect && containerRect) {
+      dropdownStyle.value = {
+        top: `${selectRect.bottom - containerRect.top + 4}px`,
+        left: `${selectRect.left - containerRect.left}px`,
+        width: `${selectRect.width}px`
+      }
+    }
+  }
+}
+
+function toggleDropdown() {
+  isDropdownOpen.value = !isDropdownOpen.value
+  if (isDropdownOpen.value) {
+    updateDropdownPosition()
+  }
+}
+
+function selectPresetOption(value: string) {
+  parameters.preset = value
+  isDropdownOpen.value = false
+}
+
+// 点击外部关闭下拉
+function handleClickOutside(event: MouseEvent) {
+  const target = event.target as HTMLElement
+  if (!target.closest('.fake-select') && !target.closest('.fake-select-dropdown')) {
+    isDropdownOpen.value = false
+  }
+}
+
+// 动态添加/移除预设选项的示例函数
+function addDynamicPreset() {
+  const newPreset = { value: 'dynamic' + Date.now(), label: '动态形状' + Date.now() }
+  presetOptions.value.push(newPreset)
+}
+
+function removeDynamicPreset() {
+  if (presetOptions.value.length > 1) {
+    presetOptions.value.pop()
+  }
+}
 
 function init() {
   if (!container.value) return
@@ -212,7 +290,13 @@ function init() {
     '三叶结': 'trefoil',
     '8字结': 'figure8',
     '五叶结': 'cinquefoil',
-    '奶奶结': 'granny'
+    '奶奶结': 'granny',
+    '七叶结': 'septfoil',
+    '土耳其结': 'turks',
+    '螺旋形': 'helix',
+    '星形结': 'star',
+    '椒盐卷结': 'pretzel',
+    '方形结': 'square'
   }).name('选择预设').onChange(onPresetChange)
   presetsFolder.open()
 
@@ -249,7 +333,7 @@ function init() {
       bodyMesh.material.map.needsUpdate = true;
     }
   });
-  
+
   if (bodyRef.value) {
     domObserver.observe(bodyRef.value, {
       attributes: true,
@@ -393,6 +477,42 @@ function onPresetChange() {
       parameters.radius = 0.5
       parameters.tube = 0.15
       break
+    case 'septfoil':
+      parameters.p = 2
+      parameters.q = 7
+      parameters.radius = 0.6
+      parameters.tube = 0.08
+      break
+    case 'turks':
+      parameters.p = 3
+      parameters.q = 7
+      parameters.radius = 0.5
+      parameters.tube = 0.12
+      break
+    case 'helix':
+      parameters.p = 1
+      parameters.q = 1
+      parameters.radius = 0.5
+      parameters.tube = 0.15
+      break
+    case 'star':
+      parameters.p = 5
+      parameters.q = 2
+      parameters.radius = 0.6
+      parameters.tube = 0.12
+      break
+    case 'pretzel':
+      parameters.p = 3
+      parameters.q = 5
+      parameters.radius = 0.55
+      parameters.tube = 0.13
+      break
+    case 'square':
+      parameters.p = 4
+      parameters.q = 3
+      parameters.radius = 0.6
+      parameters.tube = 0.14
+      break
     case 'custom':
       // 保持当前参数不变
       break
@@ -501,20 +621,44 @@ function cleanup() {
 
 onMounted(() => {
   init()
+  document.addEventListener('click', handleClickOutside)
+  window.addEventListener('resize', updateDropdownPosition)
 })
 
 onUnmounted(() => {
   cleanup()
+  document.removeEventListener('click', handleClickOutside)
+  window.removeEventListener('resize', updateDropdownPosition)
 })
 </script>
 
 <template>
   <div ref="container" class="vr-sandbox-container">
     <div ref="bodyRef" class="gui-container">
+      <!-- 伪select触发器 -->
+      <div ref="fakeSelectRef" class="fake-select-wrapper">
+        <label class="fake-label">预设形状</label>
+        <div class="fake-select" @click.stop="toggleDropdown">
+          <div class="fake-select-current">
+            {{ selectedPreset }}
+            <span class="fake-select-arrow">{{ isDropdownOpen ? '▲' : '▼' }}</span>
+          </div>
+        </div>
+      </div>
+
       <CustomButtons v-model="parameters.materialType" label="材质类型" :options="materials" />
       <CustomSelect v-model="parameters.materialType" label="材质类型" :options="materials" />
       <CustomCheckbox v-model="parameters.showModel" label="显示模型" />
       <CustomSlider v-model="parameters.animationSpeed" :min="0" :max="3" :step="0.1" />
+
+      <!-- 下拉选项列表 -->
+      <ul v-show="isDropdownOpen" class="fake-select-dropdown" :style="dropdownStyle" @click.stop>
+        <li v-for="option in presetOptions" :key="option.value" class="fake-select-option"
+          :class="{ active: option.value === parameters.preset }"
+          @click="(e: Event) => { e.stopPropagation(); selectPresetOption(option.value) }">
+          {{ option.label }}
+        </li>
+      </ul>
     </div>
   </div>
 </template>
@@ -536,5 +680,109 @@ onUnmounted(() => {
   cursor: pointer;
   opacity: 0.9;
   z-index: 10000;
+}
+
+/* 伪select样式 */
+.fake-select-wrapper {
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.fake-label {
+  color: #fff;
+  font-size: 14px;
+  min-width: 70px;
+  font-weight: 500;
+}
+
+.fake-select {
+  position: relative;
+  width: 150px;
+  cursor: pointer;
+}
+
+.fake-select-current {
+  padding: 8px 32px 8px 12px;
+  background: rgba(50, 50, 50, 0.9);
+  border: 2px solid #555;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.fake-select-current:hover {
+  border-color: #00a8ff;
+  background: rgba(60, 60, 60, 0.95);
+}
+
+.fake-select-arrow {
+  position: absolute;
+  right: 10px;
+  font-size: 10px;
+  color: #999;
+  transition: color 0.2s;
+}
+
+.fake-select:hover .fake-select-arrow {
+  color: #00a8ff;
+}
+
+.fake-select-dropdown {
+  position: absolute;
+  background: rgba(40, 40, 40, 0.98);
+  border: 2px solid #555;
+  border-radius: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  max-height: 200px;
+  overflow-y: auto;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  z-index: 10001;
+}
+
+.fake-select-option {
+  padding: 10px 12px;
+  color: #ccc;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.fake-select-option:hover {
+  background: rgba(0, 168, 255, 0.2);
+  color: #fff;
+}
+
+.fake-select-option.active {
+  background: rgba(0, 168, 255, 0.3);
+  color: #00a8ff;
+  font-weight: 500;
+}
+
+/* 滚动条样式 */
+.fake-select-dropdown::-webkit-scrollbar {
+  width: 6px;
+}
+
+.fake-select-dropdown::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+}
+
+.fake-select-dropdown::-webkit-scrollbar-thumb {
+  background: #555;
+  border-radius: 3px;
+}
+
+.fake-select-dropdown::-webkit-scrollbar-thumb:hover {
+  background: #666;
 }
 </style>
