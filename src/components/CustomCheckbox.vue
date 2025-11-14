@@ -2,7 +2,7 @@
   <div>
     <div class="checkbox-container custom-component-wrapper" @click="toggle">
       <label class="custom-label">{{ label }}</label>
-      <div class="custom-checkbox" :style="checkboxStyle" @mouseenter="isHovered = true"
+      <div class="custom-checkbox" ref="checkboxRef" :style="checkboxStyle" @mouseenter="isHovered = true"
         @mouseleave="isHovered = false">
         <div class="checkmark" :style="checkmarkStyle" />
       </div>
@@ -27,15 +27,22 @@ const emit = defineEmits<{
 }>()
 
 const isHovered = ref(false)
+const checkboxRef = ref<HTMLDivElement>()
 
 const checkboxStyle = computed(() => ({
-  borderColor: isHovered.value || props.modelValue ? 'var(--primary-color)' : 'var(--border-color)',
-  background: props.modelValue ? 'var(--primary-alpha)' : 'var(--bg-dark)'
+  // borderColor: isHovered.value || props.modelValue ? 'var(--primary-color)' : 'var(--border-color)',
+  // background: props.modelValue ? 'var(--primary-alpha)' : 'var(--bg-dark)'
 }))
 
 const checkmarkStyle = computed(() => ({
   display: props.modelValue ? 'block' : 'none'
 }))
+
+// watch(() => props.modelValue, (newVal) => {
+//   if (checkboxRef.value) {
+//     checkboxRef.value.style.borderColor = newVal ? 'var(--primary-color)' : 'var(--border-color)'
+//   }
+// })
 
 const toggle = () => {
   emit('update:modelValue', !props.modelValue)

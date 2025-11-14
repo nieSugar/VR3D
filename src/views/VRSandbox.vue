@@ -510,7 +510,6 @@ onUnmounted(() => {
 
 <template>
   <div ref="container" class="vr-sandbox-container">
-
     <div ref="bodyRef" class="gui-container">
       <CustomButtons v-model="parameters.materialType" label="材质类型" :options="materials" />
       <CustomSelect v-model="parameters.materialType" label="材质类型" :options="materials" />

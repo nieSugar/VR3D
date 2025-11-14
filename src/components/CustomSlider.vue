@@ -344,6 +344,7 @@ onUnmounted(() => {
 .slider-container {
   display: flex;
   flex: 1;
+  max-width: 250px;
 }
 
 .slider-value {

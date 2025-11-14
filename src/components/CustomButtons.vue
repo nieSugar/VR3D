@@ -4,7 +4,7 @@
       <label v-if="label" class="custom-label">
         {{ label }}
       </label>
-      <div class="buttons-container">
+      <div ref="containerRef" class="buttons-container" >
         <template v-for="option in options" :key="option.value">
           <CustomButton v-model="modelValue" :value="option.value" :label="option.label">
           </CustomButton>
@@ -15,6 +15,7 @@
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue'
 import CustomButton from './Custombutton.vue'
 
 export interface ButtonOption {
@@ -32,6 +33,7 @@ withDefaults(defineProps<Props>(), {
 })
 
 const modelValue = defineModel<string>()
+const containerRef = ref<HTMLDivElement>()
 </script>
 
 <style scoped>
@@ -48,7 +50,7 @@ const modelValue = defineModel<string>()
   overflow-x: auto;
   overflow-y: hidden;
   padding: 4px 0;
-  max-width: 300px;
+  max-width: 100%;
 }
 
 /* 自定义滚动条样式 */
