@@ -1,3 +1,5 @@
+@import './styles/custom-components.css';
+
 @font-face {
   font-family: 'Noto Sans SC';
   src: url('/src/assets/font/NotoSansSC-VariableFont_wght.ttf') format('truetype');

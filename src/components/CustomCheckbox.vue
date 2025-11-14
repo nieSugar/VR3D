@@ -1,20 +1,12 @@
 <template>
-  <div
-    class="checkbox-container"
-    @click="toggle"
-    @mouseenter="isHovered = true"
-    @mouseleave="isHovered = false"
-  >
-    <div
-      class="custom-checkbox"
-      :style="checkboxStyle"
-    >
-      <div
-        class="checkmark"
-        :style="checkmarkStyle"
-      />
+  <div>
+    <div class="checkbox-container custom-component-wrapper" @click="toggle">
+      <label class="custom-label">{{ label }}</label>
+      <div class="custom-checkbox" :style="checkboxStyle" @mouseenter="isHovered = true"
+        @mouseleave="isHovered = false">
+        <div class="checkmark" :style="checkmarkStyle" />
+      </div>
     </div>
-    <span class="checkbox-label">{{ label }}</span>
   </div>
 </template>
 
@@ -37,8 +29,8 @@ const emit = defineEmits<{
 const isHovered = ref(false)
 
 const checkboxStyle = computed(() => ({
-  borderColor: isHovered.value || props.modelValue ? '#4CAF50' : '#666',
-  background: props.modelValue ? 'rgba(76, 175, 80, 0.1)' : '#2a2a2a'
+  borderColor: isHovered.value || props.modelValue ? 'var(--primary-color)' : 'var(--border-color)',
+  background: props.modelValue ? 'var(--primary-alpha)' : 'var(--bg-dark)'
 }))
 
 const checkmarkStyle = computed(() => ({
@@ -51,21 +43,20 @@ const toggle = () => {
 </script>
 
 <style scoped>
+@import '@/styles/custom-components.css';
+
 .checkbox-container {
-  margin-top: 12px;
-  display: flex;
-  align-items: center;
+  display: inline-flex;
   cursor: pointer;
 }
 
 .custom-checkbox {
   width: 18px;
   height: 18px;
-  border: 2px solid #666;
+  border: 2px solid var(--border-color);
   border-radius: 3px;
-  margin-right: 8px;
   position: relative;
-  background: #2a2a2a;
+  background: var(--bg-dark);
   transition: all 0.2s;
   flex-shrink: 0;
 }
@@ -77,14 +68,7 @@ const toggle = () => {
   transform: translate(-50%, -50%);
   width: 10px;
   height: 10px;
-  background: #4CAF50;
+  background: var(--primary-color);
   border-radius: 2px;
 }
-
-.checkbox-label {
-  color: #fff;
-  font-size: 14px;
-  user-select: none;
-}
 </style>
-

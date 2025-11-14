@@ -14,6 +14,7 @@ import { createMaterialSelectUI } from '../utils/htmlMeshUtils'
 import CustomCheckbox from '../components/CustomCheckbox.vue'
 import CustomSelect, { type SelectOption } from '../components/CustomSelect.vue'
 import CustomSlider from '../components/CustomSlider.vue'
+import CustomButtons from '../components/CustomButtons.vue'
 
 const container = ref<HTMLDivElement | null>(null)
 const bodyRef = ref<HTMLElement | null>(null)
@@ -34,6 +35,7 @@ let materialSelectMesh: HTMLMesh | null = null
 let bodyMesh: HTMLMesh | null = null
 let guiMesh: HTMLMesh | null = null
 let torus: THREE.Mesh | null = null
+let domObserver: MutationObserver | null = null
 
 const parameters = reactive({
   radius: 0.6,
@@ -56,13 +58,15 @@ const materials: SelectOption[] = [
   { value: "plastic", label: "塑料" },
   { value: "wireframe", label: "线框" },
   { value: "normal", label: "法线" },
+  { value: "normal1", label: "法线1" },
+  { value: "normal2", label: "法线2" },
 ];
 
-watch(() => parameters.showModel, (newVal) => {
+watch(() => parameters.showModel, () => {
   onModelVisibilityChange();
 })
 
-watch(() => parameters.materialType, (newVal) => {
+watch(() => parameters.materialType, () => {
   onMaterialChange();
 })
 
@@ -238,6 +242,22 @@ function init() {
   bodyMesh.rotation.y = -Math.PI / 4;
   bodyMesh.scale.setScalar(2);
   group.add(bodyMesh)
+
+  // 设置 MutationObserver 监听 DOM 变化
+  domObserver = new MutationObserver(() => {
+    if (bodyMesh && bodyMesh.material && bodyMesh.material.map) {
+      bodyMesh.material.map.needsUpdate = true;
+    }
+  });
+  
+  if (bodyRef.value) {
+    domObserver.observe(bodyRef.value, {
+      attributes: true,
+      childList: true,
+      subtree: true,
+      characterData: true
+    });
+  }
 
 
   // GUI 网格
@@ -435,25 +455,17 @@ function animate() {
 
   stats.update()
   renderer.render(scene, camera)
-
-
-  // 更新材质选择器HTMLMesh纹理
-  if (materialSelectMesh && materialSelectMesh.material && materialSelectMesh.material.map) {
-    materialSelectMesh.material.map.needsUpdate = true
-  }
-
-  if (bodyMesh && bodyMesh.material && bodyMesh.material.map) {
-    bodyMesh.material.map.needsUpdate = true
-  }
-
-  if (guiMesh && guiMesh.material && guiMesh.material.map) {
-    guiMesh.material.map.needsUpdate = true
-  }
 }
 
 function cleanup() {
   if (animationId) {
     cancelAnimationFrame(animationId)
+  }
+
+  // 断开 MutationObserver
+  if (domObserver) {
+    domObserver.disconnect()
+    domObserver = null
   }
 
   // 清理 VR 按钮
@@ -500,6 +512,7 @@ onUnmounted(() => {
   <div ref="container" class="vr-sandbox-container">
 
     <div ref="bodyRef" class="gui-container">
+      <CustomButtons v-model="parameters.materialType" label="材质类型" :options="materials" />
       <CustomSelect v-model="parameters.materialType" label="材质类型" :options="materials" />
       <CustomCheckbox v-model="parameters.showModel" label="显示模型" />
       <CustomSlider v-model="parameters.animationSpeed" :min="0" :max="3" :step="0.1" />

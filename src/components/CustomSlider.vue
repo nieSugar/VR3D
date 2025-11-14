@@ -1,7 +1,7 @@
 <template>
   <div class="lil-gui-slider">
-    <div class="slider-header">
-      <span class="slider-title">{{ title }}</span>
+    <div class="slider-header custom-component-wrapper">
+      <label class="custom-label">{{ label }}</label>
       <div class="slider-container">
         <div v-if="min !== undefined && max !== undefined" class="slider-track-container" ref="sliderRef">
           <div class="slider-track" @mousedown="onSliderMouseDown" @touchstart="onSliderTouchStart"
@@ -21,7 +21,7 @@
 import { ref, computed, watch, onUnmounted } from 'vue'
 
 interface Props {
-  title?: string
+  label?: string
   modelValue: number
   min?: number
   max?: number
@@ -31,7 +31,7 @@ interface Props {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  title: 'Value',
+  label: 'Value',
   step: 1,
   width: 300
 })
@@ -329,39 +329,28 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+@import '@/styles/custom-components.css';
+
 .lil-gui-slider {
-  background: #1f1f1f;
-  padding: 8px 12px;
   user-select: none;
   width: 100%;
-  width: 300px
 }
 
 .slider-header {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
-}
-
-.slider-title {
-  font-size: 11px;
-  font-weight: 500;
-  color: #ebebeb;
-  text-transform: none;
-  width: 50px;
+  width: 100%;
 }
 
 .slider-container {
   display: flex;
-  width: 100%;
+  flex: 1;
 }
 
 .slider-value {
-  background: #4a4a4a;
-  margin-left: 4px;
+  background: var(--bg-medium);
+  margin: 0 4px;
   border: none;
-  color: #2cc9ff;
+  color: var(--primary-color);
   padding: 4px 8px;
   border-radius: 3px;
   font-size: 11px;
@@ -373,12 +362,12 @@ onUnmounted(() => {
 }
 
 .slider-value:hover {
-  background: #333;
+  background: var(--bg-darker);
 }
 
 .slider-value:focus {
-  background: #3a3a3a;
-  color: #fff;
+  background: var(--bg-light);
+  color: var(--text-color);
   cursor: text;
 }
 
@@ -394,13 +383,13 @@ onUnmounted(() => {
   position: relative;
   width: 100%;
   height: 100%;
-  background: #4a4a4a;
+  background: var(--bg-medium);
   border-radius: 2px;
   cursor: ew-resize;
 }
 
 .slider-track:hover {
-  background: #555;
+  background: var(--bg-hover);
 }
 
 .slider-fill {
@@ -408,7 +397,7 @@ onUnmounted(() => {
   left: 0;
   top: 0;
   height: 100%;
-  border-right: 2px solid #2cc9ff;
+  border-right: 2px solid var(--primary-color);
 }
 
 /* 拖拽光标样式 */

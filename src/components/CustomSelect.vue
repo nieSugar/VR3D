@@ -1,6 +1,6 @@
 <template>
-  <div class="select-wrapper">
-    <label v-if="label" class="select-label">
+  <div class="select-wrapper custom-component-wrapper">
+    <label v-if="label" class="custom-label">
       {{ label }}
     </label>
 
@@ -58,7 +58,7 @@ const currentLabel = computed(() => {
 })
 
 const currentValueStyle = computed(() => ({
-  borderColor: isHovered.value || isOpen.value ? '#4CAF50' : '#666'
+  borderColor: isHovered.value || isOpen.value ? 'var(--primary-color)' : 'var(--border-color)'
 }))
 
 const arrowUpColor = computed(() => {
@@ -68,7 +68,7 @@ const arrowUpColor = computed(() => {
 })
 
 const arrowDownColor = computed(() => {
-  if (isOpen.value) return '#4CAF50'
+  if (isOpen.value) return 'var(--primary-color)'
   if (isHovered.value) return '#ccc'
   return '#999'
 })
@@ -99,17 +99,10 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+@import '@/styles/custom-components.css';
+
 .select-wrapper {
   display: inline-flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.select-label {
-  color: #fff;
-  font-size: 16px;
-  font-weight: bold;
-  user-select: none;
 }
 
 .custom-select {
@@ -119,12 +112,12 @@ onUnmounted(() => {
 }
 
 .current-value {
-  padding: 8px 30px 8px 12px;
+  padding: 6px 30px 6px 12px;
   font-size: 14px;
-  border: 1px solid #666;
+  border: 1px solid var(--border-color);
   border-radius: 4px;
-  background: #2a2a2a;
-  color: #fff;
+  background: var(--bg-dark);
+  color: var(--text-color);
   cursor: pointer;
   user-select: none;
   position: relative;
@@ -157,8 +150,8 @@ onUnmounted(() => {
   top: 100%;
   left: 0;
   right: 0;
-  background: #2a2a2a;
-  border: 1px solid #666;
+  background: var(--bg-dark);
+  border: 1px solid var(--border-color);
   border-radius: 4px;
   margin-top: 4px;
   max-height: 200px;
@@ -170,16 +163,16 @@ onUnmounted(() => {
 .dropdown-item {
   padding: 8px 12px;
   cursor: pointer;
-  color: #fff;
+  color: var(--text-color);
   font-size: 14px;
   transition: background 0.2s;
 }
 
 .dropdown-item.selected {
-  background: #444;
+  background: var(--scrollbar-thumb);
 }
 
 .dropdown-item:hover {
-  background: #555 !important;
+  background: var(--bg-hover) !important;
 }
 </style>
