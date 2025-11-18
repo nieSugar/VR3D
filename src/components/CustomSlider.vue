@@ -358,7 +358,6 @@ onUnmounted(() => {
   width: 60px;
   text-align: left;
   outline: none;
-  transition: background 0.15s ease;
   cursor: ns-resize;
 }
 

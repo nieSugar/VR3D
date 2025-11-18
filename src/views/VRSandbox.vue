@@ -15,6 +15,7 @@ import CustomCheckbox from '../components/CustomCheckbox.vue'
 import CustomSelect, { type SelectOption } from '../components/CustomSelect.vue'
 import CustomSlider from '../components/CustomSlider.vue'
 import CustomButtons from '../components/CustomButtons.vue'
+import CustomSelectV2 from '../components/CustomSelectV2.vue'
 
 const container = ref<HTMLDivElement | null>(null)
 const bodyRef = ref<HTMLElement | null>(null)
@@ -513,6 +514,7 @@ onUnmounted(() => {
     <div ref="bodyRef" class="gui-container">
       <CustomButtons v-model="parameters.materialType" label="材质类型" :options="materials" />
       <CustomSelect v-model="parameters.materialType" label="材质类型" :options="materials" />
+      <CustomSelectV2 v-model="parameters.materialType" label="材质类型" :options="materials" />
       <CustomCheckbox v-model="parameters.showModel" label="显示模型" />
       <CustomSlider v-model="parameters.animationSpeed" :min="0" :max="3" :step="0.1" />
     </div>

@@ -1,6 +1,6 @@
 <template>
   <div>
-    <div class="checkbox-container custom-component-wrapper" @click="toggle">
+    <div class="checkbox-container custom-component-wrapper" @click="(e: Event) => { e.stopPropagation(); toggle() }">
       <label class="custom-label">{{ label }}</label>
       <div class="custom-checkbox" ref="checkboxRef" :style="checkboxStyle" @mouseenter="isHovered = true"
         @mouseleave="isHovered = false">
