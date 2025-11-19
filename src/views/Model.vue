@@ -1,13 +1,13 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { VRDebugPanel } from '../utils/VRDebugPanel'
 import { VRManager } from '../utils/VRManager'
-import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 import { Lut } from 'three/examples/jsm/math/Lut.js'
-import { HTMLMesh } from 'three/examples/jsm/interactive/HTMLMesh.js'
-import { InteractiveGroup } from 'three/examples/jsm/interactive/InteractiveGroup.js'
+import CustomCheckbox from '../components/CustomCheckbox.vue'
+import CustomSelectV2, { type SelectOption } from '../components/CustomSelectV2.vue'
+import CustomSlider from '../components/CustomSlider.vue'
 
 
 const container = ref<HTMLDivElement | null>(null);
@@ -16,7 +16,6 @@ const shuzhiRef = ref<HTMLDivElement | null>(null);
 const showValuePopover = ref(false);
 const pointValue = ref(0);
 const mouseLocation = { x: 0, y: 0 };
-const selectedColorMap = ref('water');
 
 let scene: THREE.Scene;
 let camera: THREE.PerspectiveCamera;
@@ -30,8 +29,6 @@ let vrManager: VRManager;
 let caeMesh: THREE.Mesh | null = null;
 let caeModelCenter = new THREE.Vector3(0, 0, 0); // CAE 模型中心位置
 let caeViewDistance = 5; // 观看 CAE 模型的合适距离
-let gui: GUI | null = null;
-let interactiveGroup: InteractiveGroup | null = null;
 
 let lut = new Lut();
 let planes: THREE.Plane[] = [];
@@ -44,7 +41,6 @@ const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 let setValueTimeout: number;
 let animationFrameId: number | null = null;
-let colorMapController: any;
 
 // 自定义颜色映射
 const ColorMapKeywords = {
@@ -114,8 +110,25 @@ Object.entries(ColorMapKeywords).forEach(([name, colormap]) => {
   lut.addColorMap(name, colormap);
 });
 
+// 选项列表
+const colorMapOptions: SelectOption[] = [
+  { value: 'water', label: '水色' },
+  { value: 'water2', label: '水色2' },
+  { value: 'rainbow', label: '彩虹' },
+  { value: 'cooltowarm', label: '冷暖' },
+  { value: 'blackbody', label: '黑体' },
+  { value: 'grayscale', label: '灰度' },
+  { value: 'wite', label: '白黑' }
+];
+
+// 数据类型选项（动态生成）
+const typeNodeOptions = ref<SelectOption[]>([]);
+
+// 时间帧选项（动态生成）
+const frameOptions = ref<SelectOption[]>([]);
+
 // GUI 参数
-const guiParams = {
+const guiParams = reactive({
   // CAE 模型控制
   caeModel: {
     visible: true,
@@ -151,7 +164,99 @@ const guiParams = {
   segmentation: false,
   nodes: {} as Record<string, Array<Task>>,
   nownode: [] as Array<Task>,
-}
+});
+
+// Watchers - 监听参数变化
+watch(() => guiParams.caeModel.visible, (value: boolean) => {
+  if (caeMesh) {
+    caeMesh.visible = value
+    debugPanel.log(`CAE 模型: ${value ? '显示' : '隐藏'}`)
+  }
+})
+
+watch(() => guiParams.caeModel.wireframe, (value: boolean) => {
+  if (caeMesh && caeMesh.material) {
+    (caeMesh.material as THREE.MeshStandardMaterial).wireframe = value
+    debugPanel.log(`线框模式: ${value ? '开启' : '关闭'}`)
+  }
+})
+
+watch(() => guiParams.caeModel.opacity, (value: number) => {
+  if (caeMesh && caeMesh.material) {
+    const material = caeMesh.material as THREE.MeshStandardMaterial
+    material.opacity = value
+    material.transparent = value < 1
+    debugPanel.log(`透明度: ${(value * 100).toFixed(0)}%`)
+  }
+})
+
+watch(() => guiParams.caeModel.metalness, (value: number) => {
+  if (caeMesh && caeMesh.material) {
+    (caeMesh.material as THREE.MeshStandardMaterial).metalness = value
+  }
+})
+
+watch(() => guiParams.caeModel.roughness, (value: number) => {
+  if (caeMesh && caeMesh.material) {
+    (caeMesh.material as THREE.MeshStandardMaterial).roughness = value
+  }
+})
+
+watch(() => guiParams.caeModel.colorMap, () => {
+  updateColors()
+  debugPanel.log(`颜色映射: ${guiParams.caeModel.colorMap}`)
+})
+
+watch(() => guiParams.scene.autoRotate, (value: boolean) => {
+  controls.autoRotate = value
+  debugPanel.log(`自动旋转: ${value ? '开启' : '关闭'}`)
+})
+
+watch(() => guiParams.scene.rotationSpeed, (value: number) => {
+  controls.autoRotateSpeed = value
+})
+
+watch(() => guiParams.animate, (value: boolean) => {
+  if (value) {
+    playAnimation()
+  } else {
+    stopAnimation()
+  }
+  debugPanel.log(`动画: ${value ? '播放' : '停止'}`)
+})
+
+watch(() => guiParams.segmentation, (value: boolean) => {
+  if (caeMesh && caeMesh.material) {
+    (caeMesh.material as any).ribbon = value
+    guiParams.caeModel.colorMap = 'grayscale'
+    updateColors()
+    debugPanel.log(`分割模式: ${value ? '开启' : '关闭'}`)
+  }
+})
+
+watch(() => guiParams.planeX.scope, (d: number) => {
+  if (planes[0]) planes[0].constant = d
+})
+
+watch(() => guiParams.planeX.plan, (v: boolean) => {
+  if (planeHelpers[0]) planeHelpers[0].visible = v
+})
+
+watch(() => guiParams.planeY.scope, (d: number) => {
+  if (planes[1]) planes[1].constant = d
+})
+
+watch(() => guiParams.planeY.plan, (v: boolean) => {
+  if (planeHelpers[1]) planeHelpers[1].visible = v
+})
+
+watch(() => guiParams.planeZ.scope, (d: number) => {
+  if (planes[2]) planes[2].constant = d
+})
+
+watch(() => guiParams.planeZ.plan, (v: boolean) => {
+  if (planeHelpers[2]) planeHelpers[2].visible = v
+})
 
 // 动画时钟（用于物体动画）
 const clock = new THREE.Clock()
@@ -270,314 +375,7 @@ function initDebugPanel() {
   debugPanel.log('VR 模式: 扳机选择 / 侧键抓取 / 摇杆移动 / A键跳跃')
 }
 
-function initGUI() {
-  gui = new GUI({ title: 'CAE 模型控制' })
-
-  // CAE 模型控制文件夹
-  const caeFolder = gui.addFolder('CAE 模型')
-
-  caeFolder.add(guiParams.caeModel, 'visible').name('显示').onChange((value: boolean) => {
-    if (caeMesh) {
-      caeMesh.visible = value
-      debugPanel.log(`CAE 模型: ${value ? '显示' : '隐藏'}`)
-    }
-  })
-
-  caeFolder.add(guiParams.caeModel, 'wireframe').name('线框模式').onChange((value: boolean) => {
-    if (caeMesh && caeMesh.material) {
-      (caeMesh.material as THREE.MeshStandardMaterial).wireframe = value
-      debugPanel.log(`线框模式: ${value ? '开启' : '关闭'}`)
-    }
-  })
-
-  caeFolder.add(guiParams.caeModel, 'opacity', 0, 1, 0.1).name('透明度').onChange((value: number) => {
-    if (caeMesh && caeMesh.material) {
-      const material = caeMesh.material as THREE.MeshStandardMaterial
-      material.opacity = value
-      material.transparent = value < 1
-      debugPanel.log(`透明度: ${(value * 100).toFixed(0)}%`)
-    }
-  })
-
-  caeFolder.add(guiParams.caeModel, 'metalness', 0, 1, 0.1).name('金属度').onChange((value: number) => {
-    if (caeMesh && caeMesh.material) {
-      (caeMesh.material as THREE.MeshStandardMaterial).metalness = value
-    }
-  })
-
-  caeFolder.add(guiParams.caeModel, 'roughness', 0, 1, 0.1).name('粗糙度').onChange((value: number) => {
-    if (caeMesh && caeMesh.material) {
-      (caeMesh.material as THREE.MeshStandardMaterial).roughness = value
-    }
-  })
-
-  caeFolder.open()
-
-  // 裁剪平面控制（加载模型后会更新范围）
-  const planeXFolder = gui.addFolder('X 轴裁剪')
-  planeXFolder.add(guiParams.planeX, 'plan').name('显示面板').onChange((v: boolean) => {
-    if (planeHelpers[0]) planeHelpers[0].visible = v
-  })
-  planeXFolder.add(guiParams.planeX, 'scope', -10, 10, 0.01).name('裁剪位置').onChange((d: number) => {
-    if (planes[0]) planes[0].constant = d
-  })
-  planeXFolder.close()
-
-  const planeYFolder = gui.addFolder('Y 轴裁剪')
-  planeYFolder.add(guiParams.planeY, 'plan').name('显示面板').onChange((v: boolean) => {
-    if (planeHelpers[1]) planeHelpers[1].visible = v
-  })
-  planeYFolder.add(guiParams.planeY, 'scope', -10, 10, 0.01).name('裁剪位置').onChange((d: number) => {
-    if (planes[1]) planes[1].constant = d
-  })
-  planeYFolder.close()
-
-  const planeZFolder = gui.addFolder('Z 轴裁剪')
-  planeZFolder.add(guiParams.planeZ, 'plan').name('显示面板').onChange((v: boolean) => {
-    if (planeHelpers[2]) planeHelpers[2].visible = v
-  })
-  planeZFolder.add(guiParams.planeZ, 'scope', -10, 10, 0.01).name('裁剪位置').onChange((d: number) => {
-    if (planes[2]) planes[2].constant = d
-  })
-  planeZFolder.close()
-
-  // 动画和特效控制
-  gui.add(guiParams, 'animate').name('动画播放').onChange((value: boolean) => {
-    if (value) {
-      playAnimation()
-    } else {
-      stopAnimation()
-    }
-    debugPanel.log(`动画: ${value ? '播放' : '停止'}`)
-  })
-
-  gui.add(guiParams.scene, 'autoRotate').name('自动旋转').onChange((value: boolean) => {
-    controls.autoRotate = value
-    debugPanel.log(`自动旋转: ${value ? '开启' : '关闭'}`)
-  })
-
-  gui.add(guiParams, 'segmentation').name('分割模式').onChange((value: boolean) => {
-    if (caeMesh && caeMesh.material) {
-      (caeMesh.material as any).ribbon = value
-      guiParams.caeModel.colorMap = 'grayscale'
-      updateColors()
-      if (colorMapController) {
-        colorMapController.updateDisplay()
-      }
-      debugPanel.log(`分割模式: ${value ? '开启' : '关闭'}`)
-    }
-  })
-
-  // 颜色映射选择
-  colorMapController = gui.add(guiParams.caeModel, 'colorMap', [
-    'water',
-    'water2',
-    'rainbow',
-    'cooltowarm',
-    'blackbody',
-    'grayscale',
-    'wite'
-  ]).name('颜色映射').onChange(() => {
-    updateColors()
-    debugPanel.log(`颜色映射: ${guiParams.caeModel.colorMap}`)
-  })
-
-  // 场景控制文件夹
-  const sceneFolder = gui.addFolder('场景控制')
-
-  sceneFolder.addColor(guiParams.scene, 'backgroundColor').name('背景色').onChange((value: string) => {
-    scene.background = new THREE.Color(value)
-  })
-
-  sceneFolder.add(guiParams.scene, 'rotationSpeed', 0.1, 5, 0.1).name('旋转速度').onChange((value: number) => {
-    controls.autoRotateSpeed = value
-  })
-
-  sceneFolder.close()
-
-  // // 测试物体控制
-  // const testFolder = gui.addFolder('测试物体')
-
-  // testFolder.add(guiParams.testObjects, 'visible').name('显示').onChange((value: boolean) => {
-  //   interactableObjects.forEach(obj => {
-  //     if (obj !== caeMesh) {
-  //       obj.visible = value
-  //     }
-  //   })
-  //   debugPanel.log(`测试物体: ${value ? '显示' : '隐藏'}`)
-  // })
-
-  // testFolder.add(guiParams.testObjects, 'animate').name('动画').onChange((value: boolean) => {
-  //   debugPanel.log(`测试物体动画: ${value ? '开启' : '关闭'}`)
-  // })
-
-  // testFolder.close()
-
-  // 添加重置按钮
-  gui.add({
-    resetCamera: () => {
-      if (caeMesh) {
-        camera.position.set(
-          caeViewDistance * 0.7,
-          caeViewDistance * 0.5,
-          caeViewDistance * 0.7
-        )
-        camera.lookAt(caeModelCenter)
-        controls.target.copy(caeModelCenter)
-        controls.update()
-        debugPanel.log('相机已重置')
-      }
-    }
-  }, 'resetCamera').name('重置相机')
-
-  // 添加模型信息显示
-  const infoFolder = gui.addFolder('模型信息')
-  infoFolder.close()
-
-  debugPanel.log('✓ GUI 控制面板已加载')
-}
-
-// 初始化CSS3D GUI - 使用lil-gui的domElement
-function initCSS3DGUI() {
-  if (!gui || !gui.domElement) {
-    console.error('GUI 未初始化');
-    return;
-  }
-
-  // 隐藏原始DOM元素
-  gui.domElement.style.visibility = 'hidden';
-
-  // 创建 InteractiveGroup
-  interactiveGroup = new InteractiveGroup();
-  interactiveGroup.listenToPointerEvents(renderer, camera);
-
-  // 如果VR管理器存在，监听VR控制器事件
-  if (vrManager) {
-    const controller1 = renderer.xr.getController(0);
-    const controller2 = renderer.xr.getController(1);
-    if (controller1) interactiveGroup.listenToXRControllerEvents(controller1);
-    if (controller2) interactiveGroup.listenToXRControllerEvents(controller2);
-  }
-
-  scene.add(interactiveGroup);
-
-  // 创建 HTMLMesh
-  const htmlMesh = new HTMLMesh(gui.domElement);
-
-  // 设置位置和缩放 - 参考示例代码的配置
-  htmlMesh.position.set(-0.75, 1.5, -0.5);
-  htmlMesh.rotation.y = Math.PI / 4;
-  htmlMesh.scale.setScalar(2);
-
-  interactiveGroup.add(htmlMesh);
-
-  console.log('HTMLMesh 已通过 InteractiveGroup 创建并添加到场景');
-  debugPanel.log('✓ lil-gui 已加载到3D场景中（支持交互）');
-}
-
-// 更新 GUI 中的模型信息
-function updateGUIModelInfo(name: string, vertices: number, faces: number, size: THREE.Vector3) {
-  if (!gui) return
-
-  const infoFolder = gui.folders.find(f => f._title === '模型信息')
-  if (!infoFolder) return
-
-  // 清除旧的控制器
-  infoFolder.controllers.forEach(c => c.destroy())
-
-  // 添加只读信息
-  const info = {
-    name: name,
-    vertices: vertices.toLocaleString(),
-    faces: faces.toLocaleString(),
-    sizeX: size.x.toFixed(2),
-    sizeY: size.y.toFixed(2),
-    sizeZ: size.z.toFixed(2),
-  }
-
-  infoFolder.add(info, 'name').name('模型名称').disable()
-  infoFolder.add(info, 'vertices').name('顶点数').disable()
-  infoFolder.add(info, 'faces').name('面数').disable()
-  infoFolder.add(info, 'sizeX').name('尺寸 X').disable()
-  infoFolder.add(info, 'sizeY').name('尺寸 Y').disable()
-  infoFolder.add(info, 'sizeZ').name('尺寸 Z').disable()
-}
-
 const interactableObjects: THREE.Object3D[] = []
-
-function initObject() {
-  // 暂时隐藏测试物体，让 CAE 模型成为焦点
-
-  // 添加立方体
-  const cubeGeometry = new THREE.BoxGeometry(0.5, 0.5, 0.5)
-  const cubeMaterial = new THREE.MeshStandardMaterial({
-    color: 0xff6b6b,
-    roughness: 0.5,
-    metalness: 0.3
-  })
-  const cube = new THREE.Mesh(cubeGeometry, cubeMaterial)
-  cube.position.set(-2, 0.25, -3)
-  cube.castShadow = true
-  cube.name = 'Cube'
-  scene.add(cube)
-  interactableObjects.push(cube)
-
-  // 添加球体
-  const sphereGeometry = new THREE.SphereGeometry(0.3, 32, 32)
-  const sphereMaterial = new THREE.MeshStandardMaterial({
-    color: 0x4ecdc4,
-    roughness: 0.3,
-    metalness: 0.7
-  })
-  const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial)
-  sphere.position.set(0, 0.3, -3)
-  sphere.castShadow = true
-  sphere.name = 'Sphere'
-  scene.add(sphere)
-  interactableObjects.push(sphere)
-
-  // 添加圆环
-  const torusGeometry = new THREE.TorusGeometry(0.3, 0.1, 16, 100)
-  const torusMaterial = new THREE.MeshStandardMaterial({
-    color: 0xffe66d,
-    roughness: 0.4,
-    metalness: 0.6
-  })
-  const torus = new THREE.Mesh(torusGeometry, torusMaterial)
-  torus.position.set(2, 0.3, -3)
-  torus.castShadow = true
-  torus.name = 'Torus'
-  scene.add(torus)
-  interactableObjects.push(torus)
-
-  // 添加圆锥
-  const coneGeometry = new THREE.ConeGeometry(0.25, 0.6, 32)
-  const coneMaterial = new THREE.MeshStandardMaterial({
-    color: 0xa8e6cf,
-    roughness: 0.5,
-    metalness: 0.4
-  })
-  const cone = new THREE.Mesh(coneGeometry, coneMaterial)
-  cone.position.set(-1, 0.3, -2)
-  cone.castShadow = true
-  cone.name = 'Cone'
-  scene.add(cone)
-  interactableObjects.push(cone)
-
-  // 添加圆柱
-  const cylinderGeometry = new THREE.CylinderGeometry(0.2, 0.2, 0.6, 32)
-  const cylinderMaterial = new THREE.MeshStandardMaterial({
-    color: 0xdda15e,
-    roughness: 0.6,
-    metalness: 0.3
-  })
-  const cylinder = new THREE.Mesh(cylinderGeometry, cylinderMaterial)
-  cylinder.position.set(1, 0.3, -2)
-  cylinder.castShadow = true
-  cylinder.name = 'Cylinder'
-  scene.add(cylinder)
-  interactableObjects.push(cylinder)
-}
 
 
 interface Task {
@@ -599,7 +397,7 @@ const newTaskValues: Array<{
   valIsArray: boolean;
 }> = [];
 
-// 加载 CAE 模型数据
+// 加载 CAE 模型数据 - 参考 oldModel.vue 的简化方式
 async function loadCAEModel() {
   try {
     debugPanel.log('开始加载 CAE 模型...')
@@ -629,6 +427,24 @@ async function loadCAEModel() {
     // 设置索引
     geometry.setIndex(new THREE.Uint32BufferAttribute(nodeData.indexs, 1))
 
+    // 计算包围盒
+    geometry.computeBoundingBox()
+    const bbox = geometry.boundingBox!
+    
+    // 参考 oldModel.vue：只做 Y 轴偏移，让模型底部在 y=0
+    const offsetY = -bbox.min.y
+    const positionAttr = geometry.attributes.position
+    if (positionAttr) {
+      const positions = positionAttr.array as Float32Array
+      for (let i = 1; i < positions.length; i += 3) {
+        positions[i] = (positions[i] ?? 0) + offsetY
+      }
+      positionAttr.needsUpdate = true
+    }
+
+    // 重新计算包围盒（因为位置已改变）
+    geometry.computeBoundingBox()
+
     const colors = [];
     for (let i = 0, n = geometry.attributes.position?.count || 0; i < n; ++i) {
       colors.push(1, 1, 1);
@@ -636,7 +452,7 @@ async function loadCAEModel() {
     geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
 
     const data = newTaskValues[0]?.value || [];
-    // 设置压力属性（用于后续处理）
+    // 设置压力属性
     geometry.setAttribute('pressure', new THREE.Float32BufferAttribute(data[0]?.val || [], 1))
 
     // 计算法线
@@ -645,32 +461,13 @@ async function loadCAEModel() {
     // 应用 UV 映射
     applyBoxUV(geometry)
 
-    const pressures = geometry.attributes.pressure;
-    const newColors = geometry.attributes.color || new THREE.Float32BufferAttribute([], 3);
-
-    lut.setColorMap('water');
-    // 遍历所有顶点，根据压力值设置颜色
-    for (let i = 0; i < pressures!.array.length; i++) {
-      const colorValue = pressures?.array[i];
-      const color = lut.getColor(colorValue || 0);
-
-      if (color === undefined) {
-        console.log('Unable to determine color for value:', colorValue);
-      } else {
-        newColors.setXYZ(i, color.r, color.g, color.b);
-      }
-    }
-
-    newColors.needsUpdate = true;
-
-
-    // 创建材质（简单的标准材质）
+    // 创建材质
     const material = new THREE.MeshStandardMaterial({
-      side: THREE.DoubleSide, // 双面渲染
-      metalness: 0, // 金属度
-      roughness: 0, // 粗糙度
-      vertexColors: true, // 使用顶点颜色
-      clippingPlanes: planes, // 裁剪平面数组
+      side: THREE.DoubleSide,
+      metalness: 0,
+      roughness: 0,
+      vertexColors: true,
+      clippingPlanes: planes,
     })
 
     // 创建网格
@@ -679,85 +476,31 @@ async function loadCAEModel() {
     caeMesh.receiveShadow = true
     caeMesh.name = 'CAE_Model'
 
-    // 计算包围盒并调整位置
-    geometry.computeBoundingBox()
-    const bbox = geometry.boundingBox!
-    const center = new THREE.Vector3()
-    bbox.getCenter(center)
-
-    // 根据模型大小调整缩放
-    const size = new THREE.Vector3()
-    bbox.getSize(size)
-    const maxDim = Math.max(size.x, size.y, size.z)
-    const scale = 2 / maxDim // 缩放到合适大小
-    caeMesh.scale.setScalar(scale)
-
-    // 计算模型底部位置（变换后的最低点）
-    const modelBottom = bbox.min.y * scale
-
-    // 设置地面在 y=0 位置（标准地面高度）
-    ground.position.y = 0
-
-    // 将模型放置在地面上方
-    // X和Z方向居中，Y方向让底部贴着地面
-    caeMesh.position.set(
-      -center.x * scale,                    // X轴居中
-      -modelBottom + 0.01,                  // Y轴：让底部离地面0.01单位（避免z-fighting）
-      -center.z * scale                     // Z轴居中
-    )
-
     scene.add(caeMesh)
     interactableObjects.push(caeMesh)
-
-    // 更新裁剪平面范围
-    updateClippingPlaneRanges(bbox, scale, center)
-
-    // 计算缩放后的包围盒大小
-    const scaledSize = size.multiplyScalar(scale)
-    const distance = Math.max(scaledSize.x, scaledSize.y, scaledSize.z) * 2
-
-    // 保存模型信息供 VR 模式使用
-    // 模型中心在地面上方（计算实际的模型中心位置）
-    caeModelCenter.set(0, (bbox.max.y - bbox.min.y) * scale / 2 + 0.01, 0)
-    caeViewDistance = distance
-
-    // 更新 VR 地面高度（玩家站在地面上，眼睛高度 1.6m）
-    groundLevel = ground.position.y + 1.6
-
-    // 调整相机位置以观看整个模型
-    camera.position.set(distance * 0.7, distance * 0.5, distance * 0.7)
-    camera.lookAt(caeModelCenter)
-
-    // 更新控制器目标到模型中心
-    controls.target.copy(caeModelCenter)
-    controls.update()
 
     // 计算最大最小值用于颜色映射
     const pressureArray = data[0]?.val || []
     maxval = Math.max(...pressureArray)
     minval = Math.min(...pressureArray)
 
-    // 更新颜色和 LUT 显示
+    // 更新颜色
     updateColors()
     updateLutDisplay()
 
+    // 参考 oldModel.vue：使用 focusObj 自动调整相机
+    focusObj(caeMesh)
+
+    // 更新裁剪平面范围（使用变换后的包围盒）
+    updateClippingPlaneRanges()
+
     const modelName = valueData[0]?.name || 'Unknown'
     debugPanel.log(`✓ CAE 模型加载成功 (${modelName})`)
-    debugPanel.log(`模型尺寸: ${scaledSize.x.toFixed(2)} x ${scaledSize.y.toFixed(2)} x ${scaledSize.z.toFixed(2)}`)
     debugPanel.log(`数值范围: ${minval.toFixed(2)} ~ ${maxval.toFixed(2)}`)
     debugPanel.log('桌面: 鼠标拖动旋转查看 / VR: 点击"Enter VR"按钮进入')
 
-    // 更新 GUI 标题和模型信息
-    if (gui && geometry.attributes.position) {
-      gui.title(`CAE 模型控制 - ${modelName}`)
-
-      const vertexCount = geometry.attributes.position.count
-      const faceCount = geometry.index ? geometry.index.count / 3 : vertexCount / 3
-      updateGUIModelInfo(modelName, vertexCount, faceCount, scaledSize)
-
-      // 设置类型节点数据
-      setupTypeNodeGUI()
-    }
+    // 设置类型节点数据和选项
+    setupTypeNodeOptions()
 
   } catch (error) {
     console.error('加载 CAE 模型失败:', error)
@@ -765,16 +508,46 @@ async function loadCAEModel() {
   }
 }
 
-// 设置类型节点选择器
-let frameController: any = null
+// 参考 oldModel.vue 的 focusObj 函数
+function focusObj(target: THREE.Object3D) {
+  let distance: number
+  const delta = new THREE.Vector3()
+  const box = new THREE.Box3()
+  const center = new THREE.Vector3()
+  const sphere = new THREE.Sphere()
 
-function setupTypeNodeGUI() {
-  if (!gui) return
+  box.setFromObject(target)
 
+  if (box.isEmpty() === false) {
+    box.getCenter(center)
+    distance = box.getBoundingSphere(sphere).radius
+  } else {
+    center.setFromMatrixPosition(target.matrixWorld)
+    distance = 0.1
+  }
+
+  // 保存模型信息供 VR 模式使用
+  caeModelCenter.copy(center)
+  caeViewDistance = distance * 2
+
+  // 更新 VR 地面高度
+  groundLevel = ground.position.y + 1.6
+
+  delta.set(0, 0, 1)
+  delta.applyQuaternion(camera.quaternion)
+  delta.multiplyScalar(distance * 1.5)
+
+  camera.position.copy(center).add(delta)
+  controls.target.copy(center)
+  controls.update()
+}
+
+// 设置类型节点选择器选项
+function setupTypeNodeOptions() {
   // 构建类型列表和节点数据
-  const types: string[] = []
+  const types: SelectOption[] = []
   newTaskValues.forEach(v => {
-    types.push(v.name)
+    types.push({ value: v.name, label: v.name })
     if (!guiParams.nodes[v.name]) {
       guiParams.nodes[v.name] = v.value
     }
@@ -782,8 +555,10 @@ function setupTypeNodeGUI() {
 
   if (types.length === 0) return
 
+  typeNodeOptions.value = types
+
   // 设置初始类型
-  guiParams.typenode = types[0] || ''
+  guiParams.typenode = types[0]?.value || ''
   guiParams.nownode = guiParams.nodes[guiParams.typenode] || []
 
   // 设置初始帧
@@ -791,69 +566,57 @@ function setupTypeNodeGUI() {
     guiParams.frame = guiParams.nownode[0]?.key || ''
   }
 
-  // 添加类型选择器到 GUI
-  gui.add(guiParams, 'typenode', types)
-    .name('数据类型')
-    .onChange(() => {
-      guiParams.nownode = guiParams.nodes[guiParams.typenode] || []
-      if (guiParams.nownode.length > 0) {
-        guiParams.frame = guiParams.nownode[0]?.key || ''
-        updateTimes()
-
-        // 更新帧选择器
-        updateFrameController()
-      }
-      debugPanel.log(`数据类型: ${guiParams.typenode}`)
-    })
-
-  // 添加帧选择器
-  updateFrameController()
+  // 更新帧选择器选项
+  updateFrameOptions()
 }
 
-// 更新帧选择控制器
-function updateFrameController() {
-  if (!gui) return
-
-  // 移除旧的帧控制器
-  if (frameController) {
-    frameController.destroy()
-    frameController = null
-  }
-
-  // 添加新的帧选择器
+// 更新帧选择器选项
+function updateFrameOptions() {
   if (guiParams.nownode.length > 0) {
-    const frameKeys = guiParams.nownode.map(n => n.key || '')
-    frameController = gui.add(guiParams, 'frame', frameKeys)
-      .name('时间帧')
-      .onChange(() => {
-        updateTimes()
-        debugPanel.log(`时间帧: ${guiParams.frame}`)
-      })
+    frameOptions.value = guiParams.nownode.map(n => ({
+      value: n.key || '',
+      label: n.key || ''
+    }))
+  } else {
+    frameOptions.value = []
   }
 }
 
-// 更新裁剪平面范围
-function updateClippingPlaneRanges(bbox: THREE.Box3, scale: number, center: THREE.Vector3) {
-  if (!gui) return
+// 监听数据类型变化
+watch(() => guiParams.typenode, (newType) => {
+  guiParams.nownode = guiParams.nodes[newType] || []
+  if (guiParams.nownode.length > 0) {
+    guiParams.frame = guiParams.nownode[0]?.key || ''
+    updateTimes()
+    updateFrameOptions()
+  }
+  debugPanel.log(`数据类型: ${newType}`)
+})
 
-  // 计算变换后的包围盒
-  // 模型现在底部在 y=0，X和Z居中
-  const modelBottom = bbox.min.y * scale
-  const transformedMin = new THREE.Vector3(
-    bbox.min.x * scale - center.x * scale,
-    -modelBottom + 0.01,
-    bbox.min.z * scale - center.z * scale
-  )
-  const transformedMax = new THREE.Vector3(
-    bbox.max.x * scale - center.x * scale,
-    bbox.max.y * scale - modelBottom + 0.01,
-    bbox.max.z * scale - center.z * scale
-  )
+// 监听时间帧变化
+watch(() => guiParams.frame, () => {
+  updateTimes()
+  debugPanel.log(`时间帧: ${guiParams.frame}`)
+})
 
-  // 更新剖切平面的大小，确保能覆盖整个模型
+// 裁剪平面范围（动态，会在模型加载后更新）
+const planeRanges = ref({
+  x: { min: -10, max: 10 },
+  y: { min: -10, max: 10 },
+  z: { min: -10, max: 10 }
+})
+
+// 更新裁剪平面范围 - 参考 oldModel.vue 的方式
+function updateClippingPlaneRanges() {
+  if (!caeMesh) return
+
+  // 从对象获取包围盒（已经是变换后的世界坐标）
+  const bbox = new THREE.Box3().setFromObject(caeMesh)
+
+  // 更新剖切平面的大小
   const size = new THREE.Vector3()
-  new THREE.Box3(transformedMin, transformedMax).getSize(size)
-  const maxSize = Math.max(size.x, size.y, size.z) * 2 // 放大一些确保覆盖
+  bbox.getSize(size)
+  const maxSize = Math.max(size.x, size.y, size.z) * 2
 
   planeObjects.forEach((po) => {
     const geometry = new THREE.PlaneGeometry(maxSize, maxSize)
@@ -861,56 +624,36 @@ function updateClippingPlaneRanges(bbox: THREE.Box3, scale: number, center: THRE
     po.geometry = geometry
   })
 
-  // 更新 planeHelper 的大小
   planeHelpers.forEach((ph) => {
     ph.size = maxSize
   })
 
-  // 添加一些边距
-  const margin = 0.1
-  const minX = transformedMin.x + transformedMin.x * margin
-  const maxX = transformedMax.x + transformedMax.x * margin
-  const minY = transformedMin.y + transformedMin.y * margin
-  const maxY = transformedMax.y + transformedMax.y * margin
-  const minZ = transformedMin.z + transformedMin.z * margin
-  const maxZ = transformedMax.z + transformedMax.z * margin
+  // 参考 oldModel.vue：使用 bbox.min/max 加上 10% 边距
+  const minX = bbox.min.x + bbox.min.x * 0.1
+  const maxX = bbox.max.x + bbox.max.x * 0.1
+  const minY = bbox.min.y + bbox.min.y * 0.1
+  const maxY = bbox.max.y + bbox.max.y * 0.1
+  const minZ = bbox.min.z + bbox.min.z * 0.1
+  const maxZ = bbox.max.z + bbox.max.z * 0.1
 
-  // 找到 X/Y/Z 裁剪文件夹并更新
-  const planeXFolder = gui.folders.find(f => f._title === 'X 轴裁剪')
-  const planeYFolder = gui.folders.find(f => f._title === 'Y 轴裁剪')
-  const planeZFolder = gui.folders.find(f => f._title === 'Z 轴裁剪')
-
-  if (planeXFolder) {
-    const controller = planeXFolder.controllers.find(c => c.property === 'scope')
-    if (controller && planes[0]) {
-      // 法线是 (-1,0,0)，所以 constant 越大，剪掉的越少
-      controller.min(minX).max(maxX)
-      guiParams.planeX.scope = maxX + 10
-      planes[0].constant = maxX + 10
-      controller.updateDisplay()
-    }
+  planeRanges.value = {
+    x: { min: minX, max: maxX },
+    y: { min: minY, max: maxY },
+    z: { min: minZ, max: maxZ }
   }
 
-  if (planeYFolder) {
-    const controller = planeYFolder.controllers.find(c => c.property === 'scope')
-    if (controller && planes[1]) {
-      // 法线是 (0,-1,0)，所以 constant 越大，剪掉的越少
-      controller.min(minY).max(maxY)
-      guiParams.planeY.scope = maxY + 10
-      planes[1].constant = maxY + 10
-      controller.updateDisplay()
-    }
+  // 设置初始值（禁用裁剪） - 参考 oldModel
+  if (planes[0]) {
+    guiParams.planeX.scope = maxX + 10
+    planes[0].constant = maxX + 10
   }
-
-  if (planeZFolder) {
-    const controller = planeZFolder.controllers.find(c => c.property === 'scope')
-    if (controller && planes[2]) {
-      // 法线是 (0,0,-1)，所以 constant 越大，剪掉的越少
-      controller.min(minZ).max(maxZ)
-      guiParams.planeZ.scope = maxZ + 10
-      planes[2].constant = maxZ + 10
-      controller.updateDisplay()
-    }
+  if (planes[1]) {
+    guiParams.planeY.scope = maxY + 10
+    planes[1].constant = maxY + 10
+  }
+  if (planes[2]) {
+    guiParams.planeZ.scope = maxZ + 10
+    planes[2].constant = maxZ + 10
   }
 }
 
@@ -939,12 +682,6 @@ function updateColors() {
 
   // 更新 LUT 显示
   updateLutDisplay()
-}
-
-// 处理颜色映射切换
-function handleColorMapChange() {
-  guiParams.caeModel.colorMap = selectedColorMap.value
-  updateColors()
 }
 
 // 更新 LUT 颜色条显示
@@ -1233,41 +970,7 @@ function initMouseValueDisplay() {
   })
 }
 
-let highlightedObject: THREE.Object3D | null = null;
-
 const originalMaterials = new Map<THREE.Object3D, THREE.Material>();
-
-function highlightObject(obj: THREE.Object3D | null) {
-  // 恢复之前高亮的对象
-  if (highlightedObject && originalMaterials.has(highlightedObject)) {
-    const mesh = highlightedObject as THREE.Mesh
-    const originalMat = originalMaterials.get(highlightedObject)!
-    mesh.material = originalMat
-  }
-
-  highlightedObject = obj
-
-  // 高亮新对象
-  if (obj) {
-    const mesh = obj as THREE.Mesh
-    if (!originalMaterials.has(obj) && mesh.material) {
-      if (Array.isArray(mesh.material)) {
-        if (mesh.material[0]) {
-          originalMaterials.set(obj, mesh.material[0])
-        }
-      } else {
-        originalMaterials.set(obj, mesh.material)
-      }
-    }
-    mesh.material = new THREE.MeshStandardMaterial({
-      color: 0xffffff,
-      emissive: 0xffff00,
-      emissiveIntensity: 0.5,
-      roughness: 0.3,
-      metalness: 0.7
-    })
-  }
-}
 
 function handleResize() {
   if (!container.value) return
@@ -1277,9 +980,6 @@ function handleResize() {
   camera.updateProjectionMatrix();
   renderer.setSize(width, height);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-
-  // 更新 CSS3D 渲染器
-  // HTMLMesh 不需要单独调整renderer大小
 }
 
 
@@ -1338,19 +1038,6 @@ function animationLoop() {
   // 渲染场景
   renderer.clear();
   renderer.render(scene, camera)
-
-  // 更新HTMLMesh材质贴图（如果GUI包含Canvas元素）
-  // Canvas元素不会触发DOM更新，所以需要手动更新纹理
-  if (interactiveGroup) {
-    interactiveGroup.children.forEach((child: any) => {
-      if (child instanceof HTMLMesh && child.material?.map) {
-        // 对于CanvasTexture，调用其update方法
-        if ('update' in child.material.map) {
-          (child.material.map as any).update();
-        }
-      }
-    });
-  }
 }
 
 // 清理函数
@@ -1402,11 +1089,6 @@ function animationCleanup() {
   // 清理控制器
   if (controls) {
     controls.dispose()
-  }
-
-  // 清理 GUI
-  if (gui) {
-    gui.destroy()
   }
 
   // 清理渲染器
@@ -1489,7 +1171,6 @@ onMounted(() => {
   initControls();
   // initObject();
   initDebugPanel();
-  initGUI();
 
   // 初始化 VR 管理器
   vrManager = new VRManager({
@@ -1497,7 +1178,6 @@ onMounted(() => {
     scene,
     camera,
     controls,
-    gui: gui || undefined,
     mesh: caeMesh || undefined,
     debugPanel,
     testObjects: interactableObjects as THREE.Mesh[],
@@ -1524,11 +1204,6 @@ onMounted(() => {
 
   // 主动画循环
   renderer.setAnimationLoop(animationLoop)
-
-  // 等待 GUI 初始化后再创建 HTMLMesh
-  setTimeout(() => {
-    initCSS3DGUI();
-  }, 1000);
 })
 
 // 组件卸载时的清理
@@ -1545,16 +1220,56 @@ onUnmounted(() => {
 <template>
   <div ref="container" class="model-container"></div>
 
-  <!-- 颜色映射选择 -->
-  <div class="color-map-selector">
-    <select v-model="selectedColorMap" @change="handleColorMapChange">
-      <option value="rainbow">彩虹</option>
-      <option value="cooltowarm">冷暖</option>
-      <option value="blackbody">黑体</option>
-      <option value="grayscale">灰度</option>
-      <option value="water">水色</option>
-      <option value="water2">水色2</option>
-    </select>
+  <!-- 自定义 GUI 面板 -->
+  <div class="gui-panel">
+    <div class="gui-title">CAE 模型控制</div>
+
+    <!-- CAE 模型控制 -->
+    <div class="gui-section">
+      <div class="section-title">CAE 模型</div>
+      <CustomCheckbox v-model="guiParams.caeModel.visible" label="显示" />
+      <CustomCheckbox v-model="guiParams.caeModel.wireframe" label="线框模式" />
+      <CustomSlider v-model="guiParams.caeModel.opacity" label="透明度" :min="0" :max="1" :step="0.1" :decimals="1" />
+      <CustomSlider v-model="guiParams.caeModel.metalness" label="金属度" :min="0" :max="1" :step="0.1" :decimals="1" />
+      <CustomSlider v-model="guiParams.caeModel.roughness" label="粗糙度" :min="0" :max="1" :step="0.1" :decimals="1" />
+    </div>
+
+    <!-- 数据控制 -->
+    <div class="gui-section" v-if="typeNodeOptions.length > 0">
+      <div class="section-title">数据控制</div>
+      <CustomSelectV2 v-model="guiParams.typenode" label="数据类型" :options="typeNodeOptions" />
+      <CustomSelectV2 v-if="frameOptions.length > 0" v-model="guiParams.frame" label="时间帧" :options="frameOptions" />
+    </div>
+
+    <!-- 颜色和动画 -->
+    <div class="gui-section">
+      <div class="section-title">颜色和动画</div>
+      <CustomSelectV2 v-model="guiParams.caeModel.colorMap" label="颜色映射" :options="colorMapOptions" />
+      <CustomCheckbox v-model="guiParams.animate" label="动画播放" />
+      <CustomCheckbox v-model="guiParams.segmentation" label="分割模式" />
+    </div>
+
+    <!-- 场景控制 -->
+    <div class="gui-section">
+      <div class="section-title">场景控制</div>
+      <CustomCheckbox v-model="guiParams.scene.autoRotate" label="自动旋转" />
+      <CustomSlider v-model="guiParams.scene.rotationSpeed" label="旋转速度" :min="0.1" :max="5" :step="0.1"
+        :decimals="1" />
+    </div>
+
+    <!-- 裁剪平面 -->
+    <div class="gui-section">
+      <div class="section-title">裁剪平面</div>
+      <CustomCheckbox v-model="guiParams.planeX.plan" label="显示X轴" />
+      <CustomSlider v-model="guiParams.planeX.scope" label="X轴位置" :min="planeRanges.x.min" :max="planeRanges.x.max"
+        :step="0.01" :decimals="2" />
+      <CustomCheckbox v-model="guiParams.planeY.plan" label="显示Y轴" />
+      <CustomSlider v-model="guiParams.planeY.scope" label="Y轴位置" :min="planeRanges.y.min" :max="planeRanges.y.max"
+        :step="0.01" :decimals="2" />
+      <CustomCheckbox v-model="guiParams.planeZ.plan" label="显示Z轴" />
+      <CustomSlider v-model="guiParams.planeZ.scope" label="Z轴位置" :min="planeRanges.z.min" :max="planeRanges.z.max"
+        :step="0.01" :decimals="2" />
+    </div>
   </div>
 
   <!-- LUT 颜色条和数值显示 -->
@@ -1578,25 +1293,45 @@ onUnmounted(() => {
   height: 100%;
 }
 
-.color-map-selector {
-  position: absolute;
-  top: 2%;
-  left: 2%;
-  z-index: 100;
-}
-
-.color-map-selector select {
-  padding: 8px 12px;
-  font-size: 14px;
-  border: 1px solid #ccc;
-  border-radius: 4px;
-  background-color: rgba(255, 255, 255, 0.9);
+.gui-panel {
+  position: fixed;
+  top: 50px;
+  left: 20px;
+  width: 300px;
+  max-height: 80vh;
+  overflow-y: auto;
+  background-color: rgba(30, 30, 30, 0.95);
+  padding: 16px;
+  border-radius: 8px;
+  z-index: 1000;
   cursor: pointer;
-  outline: none;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
 }
 
-.color-map-selector select:hover {
-  border-color: #999;
+.gui-title {
+  font-size: 16px;
+  font-weight: bold;
+  color: #fff;
+  margin-bottom: 16px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.gui-section {
+  margin-bottom: 20px;
+}
+
+.section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #aaa;
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.gui-panel :deep(.custom-component-wrapper) {
+  margin-bottom: 8px;
 }
 
 .lut-shuzhi {
@@ -1625,5 +1360,24 @@ onUnmounted(() => {
   pointer-events: none;
   font-size: 12px;
   z-index: 1000;
+}
+
+/* 滚动条样式 */
+.gui-panel::-webkit-scrollbar {
+  width: 8px;
+}
+
+.gui-panel::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+}
+
+.gui-panel::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+.gui-panel::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
 }
 </style>
