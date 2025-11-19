@@ -858,8 +858,7 @@ function updateLutDisplay() {
   }
 
   // 绘制单位和类型
-  const unit = newTaskValues[0]?.unit || ''
-  const name = newTaskValues[0]?.name || ''
+  const { unit = '', name = '' } = newTaskValues.find(s => s.name === guiParams.typenode) || {};
   ctx.fillText(unit, mrW, mrH + 14)
   ctx.fillText(name, mrW, mrH + 32)
 
