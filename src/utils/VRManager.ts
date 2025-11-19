@@ -140,7 +140,7 @@ export class VRManager {
     container.appendChild(VRButton.createButton(this.renderer));
 
     // 创建地面
-    this.createGround();
+    // this.createGround();
 
     // 创建VR控制器
     this.vrControllers.push(this.createVRController(0));
@@ -159,6 +159,7 @@ export class VRManager {
       metalness: 0.2
     });
     this.ground = new THREE.Mesh(groundGeometry, groundMaterial);
+    this.ground.name = 'Vr-Manager-Ground';
     this.ground.rotation.x = -Math.PI / 2;
     this.ground.position.y = 0;
     this.ground.receiveShadow = true;

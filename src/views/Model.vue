@@ -2,7 +2,7 @@
 import { onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import { VRDebugPanel } from '../utils/VRDebugPanel'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { VRManager } from '../utils/VRManager'
 import { Lut } from 'three/examples/jsm/math/Lut.js'
 import { HTMLMesh } from 'three/examples/jsm/interactive/HTMLMesh.js'
@@ -26,9 +26,8 @@ let camera: THREE.PerspectiveCamera;
 let renderer: THREE.WebGLRenderer;
 
 let controls: OrbitControls;
-let ground: THREE.Mesh;
+// let ground: THREE.Mesh; // 去掉地面
 
-let debugPanel: VRDebugPanel;
 let vrManager: VRManager;
 let interactiveGroup: InteractiveGroup | null = null; // 交互组
 let guiMesh: HTMLMesh | null = null; // GUI HTMLMesh
@@ -38,6 +37,8 @@ let controller2: THREE.Group | null = null; // VR 控制器2
 let caeMesh: THREE.Mesh | null = null;
 let caeModelCenter = new THREE.Vector3(0, 0, 0); // CAE 模型中心位置
 let caeViewDistance = 5; // 观看 CAE 模型的合适距离
+let baseSceneModel: THREE.Group | null = null; // 基础场景模型
+let sceneBoundaryBox: THREE.Box3Helper | null = null; // 场景边界盒子
 
 let lut = new Lut();
 let planes: THREE.Plane[] = [];
@@ -179,14 +180,12 @@ const guiParams = reactive({
 watch(() => guiParams.caeModel.visible, (value: boolean) => {
   if (caeMesh) {
     caeMesh.visible = value
-    debugPanel.log(`CAE 模型: ${value ? '显示' : '隐藏'}`)
   }
 })
 
 watch(() => guiParams.caeModel.wireframe, (value: boolean) => {
   if (caeMesh && caeMesh.material) {
     (caeMesh.material as THREE.MeshStandardMaterial).wireframe = value
-    debugPanel.log(`线框模式: ${value ? '开启' : '关闭'}`)
   }
 })
 
@@ -195,7 +194,6 @@ watch(() => guiParams.caeModel.opacity, (value: number) => {
     const material = caeMesh.material as THREE.MeshStandardMaterial
     material.opacity = value
     material.transparent = value < 1
-    debugPanel.log(`透明度: ${(value * 100).toFixed(0)}%`)
   }
 })
 
@@ -213,12 +211,10 @@ watch(() => guiParams.caeModel.roughness, (value: number) => {
 
 watch(() => guiParams.caeModel.colorMap, () => {
   updateColors()
-  debugPanel.log(`颜色映射: ${guiParams.caeModel.colorMap}`)
 })
 
 watch(() => guiParams.scene.autoRotate, (value: boolean) => {
   controls.autoRotate = value
-  debugPanel.log(`自动旋转: ${value ? '开启' : '关闭'}`)
 })
 
 watch(() => guiParams.scene.rotationSpeed, (value: number) => {
@@ -231,7 +227,6 @@ watch(() => guiParams.animate, (value: boolean) => {
   } else {
     stopAnimation()
   }
-  debugPanel.log(`动画: ${value ? '播放' : '停止'}`)
 })
 
 watch(() => guiParams.segmentation, (value: boolean) => {
@@ -239,7 +234,6 @@ watch(() => guiParams.segmentation, (value: boolean) => {
     (caeMesh.material as any).ribbon = value
     guiParams.caeModel.colorMap = 'grayscale'
     updateColors()
-    debugPanel.log(`分割模式: ${value ? '开启' : '关闭'}`)
   }
 })
 
@@ -270,21 +264,26 @@ watch(() => guiParams.planeZ.plan, (v: boolean) => {
 // 动画时钟（用于物体动画）
 const clock = new THREE.Clock()
 
-function initSceneAndLightAndGround() {
+function initSceneAndLight() {
   scene = new THREE.Scene()
   scene.background = new THREE.Color(0x1a1a2e)
-  scene.fog = new THREE.Fog(0x1a1a2e, 5, 20)
+  // scene.fog = new THREE.Fog(0x1a1a2e, 5, 20) // 去掉雾效果
 
-  // 添加环境光和方向光
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.5)
+  // 添加环境光和方向光 - 室内光照
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.8) // 室内需要更亮的环境光
   scene.add(ambientLight)
 
-  const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8)
-  directionalLight.position.set(5, 10, 5)
-  directionalLight.castShadow = true
-  directionalLight.shadow.mapSize.width = 2048
-  directionalLight.shadow.mapSize.height = 2048
-  scene.add(directionalLight)
+  // const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5)
+  // directionalLight.position.set(5, 10, 5)
+  // directionalLight.castShadow = true
+  // directionalLight.shadow.mapSize.width = 2048
+  // directionalLight.shadow.mapSize.height = 2048
+  // scene.add(directionalLight)
+
+  // // 添加点光源模拟室内灯光
+  const pointLight = new THREE.PointLight(0xffffff, 0.4)
+  pointLight.position.set(0, 5, 0)
+  scene.add(pointLight)
 
   // 初始化裁剪平面
   planes = [
@@ -329,24 +328,24 @@ function initSceneAndLightAndGround() {
     scene.add(poGroup);
   }
 
-  // 添加地面
-  const groundGeometry = new THREE.PlaneGeometry(20, 20)
-  const groundMaterial = new THREE.MeshStandardMaterial({
-    color: 0x2d2d44,
-    roughness: 0.8,
-    metalness: 0.2
-  })
-  ground = new THREE.Mesh(groundGeometry, groundMaterial)
-  ground.rotation.x = -Math.PI / 2
-  ground.receiveShadow = true
-  scene.add(ground)
+  // // 去掉地面 - 使用室内场景
+  // const groundGeometry = new THREE.PlaneGeometry(20, 20)
+  // const groundMaterial = new THREE.MeshStandardMaterial({
+  //   color: 0x2d2d44,
+  //   roughness: 0.8,
+  //   metalness: 0.2
+  // })
+  // ground = new THREE.Mesh(groundGeometry, groundMaterial)
+  // ground.rotation.x = -Math.PI / 2
+  // ground.receiveShadow = true
+  // scene.add(ground)
 }
 
 function initCamera() {
   if (!container?.value) return
   const aspect = container.value.clientWidth / container.value.clientHeight
   camera = new THREE.PerspectiveCamera(75, aspect, 0.1, 1000)
-  camera.position.set(0, 1.6, 3)
+  camera.position.set(0, 1.6, 0) // 相机在场景中心，等待模型加载后会调整到房间内部
   scene.add(camera)
 }
 
@@ -369,50 +368,50 @@ function initControls() {
   controls.enableDamping = true;
   controls.dampingFactor = 0.05;
   controls.screenSpacePanning = false;
-  controls.minDistance = 1;
-  controls.maxDistance = 100;
-  controls.maxPolarAngle = Math.PI / 1.5;
-  // 初始目标指向场景中心，CAE 模型加载后会更新
-  controls.target.set(0, 0, 0);
+  controls.minDistance = 0.5; // 更近的最小距离，适合室内
+  controls.maxDistance = 50; // 减小最大距离，适合室内场景
+  controls.maxPolarAngle = Math.PI; // 允许相机看到天花板
+  // 初始目标指向场景中心，场景模型加载后会更新
+  controls.target.set(0, 1.6, 0); // 初始看向眼睛高度
 }
 
 // 初始化 VR 交互组件
 function initVRInteraction() {
   if (!renderer || !camera) return
-  
+
   // 创建交互组
   interactiveGroup = new InteractiveGroup()
   interactiveGroup.listenToPointerEvents(renderer, camera)
   scene.add(interactiveGroup)
-  
+
   // 创建 VR 控制器
   const geometry = new THREE.BufferGeometry()
   geometry.setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)])
   const material = new THREE.LineBasicMaterial({ color: 0xffffff })
-  
+
   controller1 = renderer.xr.getController(0)
   controller1.add(new THREE.Line(geometry, material))
   scene.add(controller1)
-  
+
   controller2 = renderer.xr.getController(1)
   controller2.add(new THREE.Line(geometry.clone(), material.clone()))
   scene.add(controller2)
-  
+
   // 为交互组添加控制器监听
   interactiveGroup.listenToXRControllerEvents(controller1 as any)
   interactiveGroup.listenToXRControllerEvents(controller2 as any)
-  
+
   // 添加控制器模型
   const controllerModelFactory = new XRControllerModelFactory()
-  
+
   const controllerGrip1 = renderer.xr.getControllerGrip(0)
   controllerGrip1.add(controllerModelFactory.createControllerModel(controllerGrip1))
   scene.add(controllerGrip1)
-  
+
   const controllerGrip2 = renderer.xr.getControllerGrip(1)
   controllerGrip2.add(controllerModelFactory.createControllerModel(controllerGrip2))
   scene.add(controllerGrip2)
-  
+
   // 创建 GUI HTMLMesh（延迟创建以确保DOM已准备好）
   setTimeout(() => {
     if (guiPanelRef.value && interactiveGroup) {
@@ -423,14 +422,14 @@ function initVRInteraction() {
       // guiMesh.rotation.y = Math.PI / 5
       guiMesh.scale.setScalar(2.5)
       interactiveGroup.add(guiMesh)
-      
+
       // 设置 MutationObserver 监听 DOM 变化
       domObserver = new MutationObserver(() => {
         if (guiMesh && guiMesh.material && guiMesh.material.map) {
           guiMesh.material.map.needsUpdate = true
         }
       })
-      
+
       domObserver.observe(guiPanelRef.value, {
         attributes: true,
         childList: true,
@@ -439,14 +438,6 @@ function initVRInteraction() {
       })
     }
   }, 100) // 延迟100ms确保DOM已完全渲染
-}
-
-
-function initDebugPanel() {
-  debugPanel = new VRDebugPanel(scene)
-  debugPanel.log('模型场景已启动')
-  debugPanel.log('桌面模式: 鼠标旋转视角 / WASD移动 / 空格跳跃 / 左键选择 / 右键抓取')
-  debugPanel.log('VR 模式: 扳机选择 / 侧键抓取 / 摇杆移动 / A键跳跃')
 }
 
 const interactableObjects: THREE.Object3D[] = []
@@ -474,7 +465,6 @@ const newTaskValues: Array<{
 // 加载 CAE 模型数据 - 参考 oldModel.vue 的简化方式
 async function loadCAEModel() {
   try {
-    debugPanel.log('开始加载 CAE 模型...')
 
     // 加载节点数据和数值数据
     const [nodeResponse, valueResponse] = await Promise.all([
@@ -504,7 +494,7 @@ async function loadCAEModel() {
     // 计算包围盒
     geometry.computeBoundingBox()
     const bbox = geometry.boundingBox!
-    
+
     // 参考 oldModel.vue：只做 Y 轴偏移，让模型底部在 y=0
     const offsetY = -bbox.min.y
     const positionAttr = geometry.attributes.position
@@ -550,6 +540,7 @@ async function loadCAEModel() {
     caeMesh.receiveShadow = true
     caeMesh.name = 'CAE_Model'
 
+
     scene.add(caeMesh)
     interactableObjects.push(caeMesh)
 
@@ -562,27 +553,94 @@ async function loadCAEModel() {
     updateColors()
     updateLutDisplay()
 
-    // 参考 oldModel.vue：使用 focusObj 自动调整相机
+    // 使用 focusObj 自动调整相机
     focusObj(caeMesh)
 
     // 更新裁剪平面范围（使用变换后的包围盒）
     updateClippingPlaneRanges()
 
     const modelName = valueData[0]?.name || 'Unknown'
-    debugPanel.log(`✓ CAE 模型加载成功 (${modelName})`)
-    debugPanel.log(`数值范围: ${minval.toFixed(2)} ~ ${maxval.toFixed(2)}`)
-    debugPanel.log('桌面: 鼠标拖动旋转查看 / VR: 点击"Enter VR"按钮进入')
 
     // 设置类型节点数据和选项
     setupTypeNodeOptions()
 
   } catch (error) {
     console.error('加载 CAE 模型失败:', error)
-    debugPanel.log('✗ CAE 模型加载失败')
   }
 }
 
-// 参考 oldModel.vue 的 focusObj 函数
+// 加载基础场景 GLB 模型
+async function loadBaseScene() {
+  try {
+    const loader = new GLTFLoader()
+    // 加载 tjdx.glb 模型
+    const gltf = await loader.loadAsync('/src/assets/models/tjdx.glb')
+
+    baseSceneModel = gltf.scene
+
+    // 调整模型大小和位置（根据需要）
+    baseSceneModel.scale.set(2, 2, 2)
+    baseSceneModel.position.set(0, 0, 0)
+
+    // 设置模型材质属性
+    baseSceneModel.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        child.castShadow = true
+        child.receiveShadow = true
+
+        // 如果材质是 MeshStandardMaterial，可以调整属性
+        if (child.material instanceof THREE.MeshStandardMaterial) {
+          child.material.roughness = 0.7
+          child.material.metalness = 0.3
+        }
+      }
+    })
+
+    // 添加到场景
+    scene.add(baseSceneModel)
+
+    // 计算边界并创建边界框
+    const bbox = new THREE.Box3().setFromObject(baseSceneModel)
+    const center = bbox.getCenter(new THREE.Vector3())
+    const size = bbox.getSize(new THREE.Vector3())
+
+    // 创建可视化边界框（调试用，可以设置为不可见）
+    sceneBoundaryBox = new THREE.Box3Helper(bbox, 0x00ff00)
+    sceneBoundaryBox.visible = true // 默认不显示边界框
+    scene.add(sceneBoundaryBox)
+
+    // 创建不可见的碰撞边界
+    const boundaryGeometry = new THREE.BoxGeometry(size.x * 1.1, size.y * 1.1, size.z * 1.1)
+    const boundaryMaterial = new THREE.MeshBasicMaterial({
+      visible: false,
+      wireframe: true
+    })
+    const boundaryMesh = new THREE.Mesh(boundaryGeometry, boundaryMaterial)
+    boundaryMesh.position.copy(center)
+    boundaryMesh.name = 'sceneBoundary'
+    scene.add(boundaryMesh)
+
+    // 更新相机位置到房间内部
+    // 假设房间中心稍微偏上一点作为眼睛高度
+    camera.position.set(center.x, center.y + 1.6, center.z)
+    controls.target.set(center.x, center.y + 1.6, center.z - 2) // 看向前方
+    controls.update()
+
+    // TODO: 如果需要，可以在 VRManager 中实现 setBoundary 方法来限制传送范围
+    // if (vrManager) {
+    //   vrManager.setBoundary({
+    //     minX: bbox.min.x,
+    //     maxX: bbox.max.x,
+    //     minZ: bbox.min.z,
+    //     maxZ: bbox.max.z
+    //   })
+    // }
+
+  } catch (error) {
+    console.error('加载基础场景失败:', error)
+  }
+}
+
 function focusObj(target: THREE.Object3D) {
   let distance: number
   const delta = new THREE.Vector3()
@@ -604,8 +662,9 @@ function focusObj(target: THREE.Object3D) {
   caeModelCenter.copy(center)
   caeViewDistance = distance * 2
 
-  // 更新 VR 地面高度
-  groundLevel = ground.position.y + 1.6
+  // 更新 VR 地面高度 - 使用场景中心高度
+  // groundLevel = ground.position.y + 1.6
+  groundLevel = 1.6 // 默认眼睛高度
 
   delta.set(0, 0, 1)
   delta.applyQuaternion(camera.quaternion)
@@ -664,13 +723,11 @@ watch(() => guiParams.typenode, (newType) => {
     updateTimes()
     updateFrameOptions()
   }
-  debugPanel.log(`数据类型: ${newType}`)
 })
 
 // 监听时间帧变化
 watch(() => guiParams.frame, () => {
   updateTimes()
-  debugPanel.log(`时间帧: ${guiParams.frame}`)
 })
 
 // 裁剪平面范围（动态，会在模型加载后更新）
@@ -1175,13 +1232,13 @@ function animationCleanup() {
     }
   })
 
-  // 清理地面
-  ground.geometry.dispose()
-  if (Array.isArray(ground.material)) {
-    ground.material.forEach(m => m.dispose())
-  } else {
-    ground.material.dispose()
-  }
+  // // 清理地面 - 已移除地面
+  // ground.geometry.dispose()
+  // if (Array.isArray(ground.material)) {
+  //   ground.material.forEach(m => m.dispose())
+  // } else {
+  //   ground.material.dispose()
+  // }
 
   // 清理 CAE 模型
   if (caeMesh) {
@@ -1268,17 +1325,16 @@ function mapTaskData(taskvals: Array<{
 }
 
 
-onMounted(() => {
+onMounted(async () => {
   if (!container.value) return
 
   // ========== Three.js 初始化 ==========
-  initSceneAndLightAndGround();
+  initSceneAndLight();
   initCamera();
   initRenderer();
   initControls();
   initVRInteraction(); // 初始化 VR 交互
   // initObject();
-  initDebugPanel();
 
   // 初始化 VR 管理器
   vrManager = new VRManager({
@@ -1287,7 +1343,6 @@ onMounted(() => {
     camera,
     controls,
     mesh: caeMesh || undefined,
-    debugPanel,
     testObjects: interactableObjects as THREE.Mesh[],
     caeModelCenter,
     caeViewDistance,
@@ -1295,7 +1350,6 @@ onMounted(() => {
       isVRMode.value = true
       showGUI2D.value = false // VR 模式下隐藏 2D GUI
       showGUI3D.value = true // VR 模式下确保显示 3D GUI
-      debugPanel.hide()
       // 确保 3D GUI 可见
       if (guiMesh) {
         guiMesh.visible = true
@@ -1308,7 +1362,6 @@ onMounted(() => {
       isVRMode.value = false
       showGUI2D.value = true // 返回桌面模式，显示 2D GUI
       showGUI3D.value = true // 保持 3D GUI 显示
-      debugPanel.show()
       // 确保 3D GUI 可见
       if (guiMesh) {
         guiMesh.visible = true
@@ -1319,6 +1372,9 @@ onMounted(() => {
     }
   })
   vrManager.init(container.value)
+
+  // 加载基础场景
+  await loadBaseScene();
 
   // 加载 CAE 模型
   loadCAEModel();
