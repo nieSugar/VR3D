@@ -512,9 +512,9 @@ export class VRManager {
         // 保存当前状态
         this.prevButtonStates.set(hand, gamepad.buttons.map(b => b.pressed));
 
-        // 摇杆移动（右手）
+        // 摇杆移动
         if (index === 1 || index === 0) {
-          const deadzone = 0.15;
+          const deadzone = 0.1;
           if (Math.abs(gamepad.thumbstickX) > deadzone || Math.abs(gamepad.thumbstickY) > deadzone) {
             this.handleMove(new THREE.Vector2(gamepad.thumbstickX, gamepad.thumbstickY));
           }

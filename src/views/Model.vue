@@ -12,54 +12,84 @@ import CustomCheckbox from '../components/CustomCheckbox.vue'
 import CustomSelectV2, { type SelectOption } from '../components/CustomSelectV2.vue'
 import CustomSlider from '../components/CustomSlider.vue'
 
+// -----------------------------------------------------------------------------
+// 类型定义
+// -----------------------------------------------------------------------------
+interface Task {
+  name?: string;
+  val?: Array<number>;
+  max?: number;
+  min?: number;
+  key?: string;
+  nameKey?: string;
+  valIsArray?: boolean;
+  unit?: string;
+}
 
-const container = ref<HTMLDivElement | null>(null);
-const lutRef = ref<HTMLDivElement | null>(null);
-const shuzhiRef = ref<HTMLDivElement | null>(null);
-const guiPanelRef = ref<HTMLElement | null>(null); // GUI 面板引用
-const lutBodyRef = ref<HTMLDivElement | null>(null); // Lut 面板引用（3D VR 版本）
-const lutRef2D = ref<HTMLDivElement | null>(null); // Lut 2D 显示引用
-const shuzhiRef2D = ref<HTMLDivElement | null>(null); // 数值 2D 显示引用
-const showValuePopover = ref(false);
-const pointValue = ref(0);
-const mouseLocation = { x: 0, y: 0 };
+// -----------------------------------------------------------------------------
+// DOM/Overlay 引用 & 状态
+// -----------------------------------------------------------------------------
+const container = ref<HTMLDivElement | null>(null)
+const lutRef = ref<HTMLDivElement | null>(null)
+const shuzhiRef = ref<HTMLDivElement | null>(null)
+const guiPanelRef = ref<HTMLElement | null>(null) // GUI 面板引用
+const lutBodyRef = ref<HTMLDivElement | null>(null) // Lut 面板引用（3D VR 版本）
+const lutRef2D = ref<HTMLDivElement | null>(null) // Lut 2D 显示引用
+const shuzhiRef2D = ref<HTMLDivElement | null>(null) // 数值 2D 显示引用
+const showValuePopover = ref(false)
+const pointValue = ref(0)
+const mouseLocation = reactive({ x: 0, y: 0 })
 
-let scene: THREE.Scene;
-let camera: THREE.PerspectiveCamera;
-let renderer: THREE.WebGLRenderer;
+// -----------------------------------------------------------------------------
+// Three.js 核心状态
+// -----------------------------------------------------------------------------
+let scene: THREE.Scene
+let camera: THREE.PerspectiveCamera
+let renderer: THREE.WebGLRenderer
+let controls: OrbitControls
+let vrManager: VRManager
 
-let controls: OrbitControls;
-// let ground: THREE.Mesh; // 去掉地面
+let interactiveGroup: InteractiveGroup | null = null // 交互组
+let guiMesh: HTMLMesh | null = null // GUI HTMLMesh
+let lutMesh: HTMLMesh | null = null // Lut HTMLMesh
+const guiPanelDefaultPosition = new THREE.Vector3(-1.0, 1.5, -2.0)
+const lutPanelDefaultPosition = new THREE.Vector3(-3.0, 1.5, -2.0)
+const vrUIPanelConfig = {
+  distance: 3,
+  horizontalOffset: 1,
+  verticalOffset: 0.1
+}
+const vrCameraWorldPos = new THREE.Vector3()
+const vrCameraWorldQuat = new THREE.Quaternion()
+const vrPanelForward = new THREE.Vector3()
+const vrPanelRight = new THREE.Vector3()
+const vrPanelUp = new THREE.Vector3()
+const vrPanelBasePosition = new THREE.Vector3()
+const vrPanelTempVector = new THREE.Vector3()
+let domObserver: MutationObserver | null = null // DOM 观察器
+let controller1: THREE.Group | null = null // VR 控制器1
+let controller2: THREE.Group | null = null // VR 控制器2
+let caeMesh: THREE.Mesh | null = null
+let caeModelCenter = new THREE.Vector3(0, 0, 0) // CAE 模型中心位置
+let caeViewDistance = 5 // 观看 CAE 模型的合适距离
+let baseSceneModel: THREE.Group | null = null // 基础场景模型
+let sceneBoundaryBox: THREE.Box3Helper | null = null // 场景边界盒子
 
-let vrManager: VRManager;
-let interactiveGroup: InteractiveGroup | null = null; // 交互组
-let guiMesh: HTMLMesh | null = null; // GUI HTMLMesh
-let lutMesh: HTMLMesh | null = null; // Lut HTMLMesh
-let domObserver: MutationObserver | null = null; // DOM 观察器
+let lut = new Lut()
+let planes: THREE.Plane[] = []
+let planeHelpers: THREE.PlaneHelper[] = []
+let planeObjects: THREE.Mesh[] = []
+let maxval = 1
+let minval = 0
 
+const raycaster = new THREE.Raycaster()
+const mouse = new THREE.Vector2()
+let setValueTimeout: number
+let animationFrameId: number | null = null
 
-
-let controller1: THREE.Group | null = null; // VR 控制器1
-let controller2: THREE.Group | null = null; // VR 控制器2
-let caeMesh: THREE.Mesh | null = null;
-let caeModelCenter = new THREE.Vector3(0, 0, 0); // CAE 模型中心位置
-let caeViewDistance = 5; // 观看 CAE 模型的合适距离
-let baseSceneModel: THREE.Group | null = null; // 基础场景模型
-let sceneBoundaryBox: THREE.Box3Helper | null = null; // 场景边界盒子
-
-let lut = new Lut();
-let planes: THREE.Plane[] = [];
-let planeHelpers: THREE.PlaneHelper[] = [];
-let planeObjects: THREE.Mesh[] = [];
-let maxval: number = 1;
-let minval: number = 0;
-
-const raycaster = new THREE.Raycaster();
-const mouse = new THREE.Vector2();
-let setValueTimeout: number;
-let animationFrameId: number | null = null;
-
-// 自定义颜色映射
+// -----------------------------------------------------------------------------
+// 颜色映射定义
+// -----------------------------------------------------------------------------
 const ColorMapKeywords = {
   rainbow: [
     [0.0, 0x00008f],
@@ -144,6 +174,33 @@ const typeNodeOptions = ref<SelectOption[]>([]);
 // 时间帧选项（动态生成）
 const frameOptions = ref<SelectOption[]>([]);
 
+// 数据缓存与交互对象
+const newTaskValues: Array<{
+  value: Array<Task>;
+  name: string;
+  nameKey: string;
+  unit: string;
+  valIsArray: boolean;
+}> = [];
+
+const interactableObjects: THREE.Object3D[] = [];
+
+// 裁剪面滑块范围
+const planeRanges = ref({
+  x: { min: -10, max: 10 },
+  y: { min: -10, max: 10 },
+  z: { min: -10, max: 10 }
+});
+
+// GUI 显示状态
+const isVRMode = ref(false);
+const showGUI2D = ref(true); // 控制 2D GUI 面板显示（桌面模式下默认显示）
+const showGUI3D = ref(true); // 控制 3D GUI 面板显示（默认显示）
+
+// 运行时辅助状态
+const originalMaterials = new Map<THREE.Object3D, THREE.Material>();
+let grabbedObject: THREE.Object3D | null = null; // 当前被抓取的物体
+
 // GUI 参数
 const guiParams = reactive({
   // CAE 模型控制
@@ -183,90 +240,123 @@ const guiParams = reactive({
   nownode: [] as Array<Task>,
 });
 
-// Watchers - 监听参数变化
-watch(() => guiParams.caeModel.visible, (value: boolean) => {
-  if (caeMesh) {
-    caeMesh.visible = value
-  }
-})
+setupCaeModelWatchers()
+setupSceneWatchers()
+setupAnimationWatchers()
+setupPlaneWatchers()
+setupDataWatchers()
+registerLifecycleHooks()
 
-watch(() => guiParams.caeModel.wireframe, (value: boolean) => {
-  if (caeMesh && caeMesh.material) {
-    (caeMesh.material as THREE.MeshStandardMaterial).wireframe = value
-  }
-})
+function setupCaeModelWatchers() {
+  watch(() => guiParams.caeModel.visible, (value: boolean) => {
+    if (caeMesh) {
+      caeMesh.visible = value
+    }
+  })
 
-watch(() => guiParams.caeModel.opacity, (value: number) => {
-  if (caeMesh && caeMesh.material) {
-    const material = caeMesh.material as THREE.MeshStandardMaterial
-    material.opacity = value
-    material.transparent = value < 1
-  }
-})
+  watch(() => guiParams.caeModel.wireframe, (value: boolean) => {
+    if (caeMesh && caeMesh.material) {
+      (caeMesh.material as THREE.MeshStandardMaterial).wireframe = value
+    }
+  })
 
-watch(() => guiParams.caeModel.metalness, (value: number) => {
-  if (caeMesh && caeMesh.material) {
-    (caeMesh.material as THREE.MeshStandardMaterial).metalness = value
-  }
-})
+  watch(() => guiParams.caeModel.opacity, (value: number) => {
+    if (caeMesh && caeMesh.material) {
+      const material = caeMesh.material as THREE.MeshStandardMaterial
+      material.opacity = value
+      material.transparent = value < 1
+    }
+  })
 
-watch(() => guiParams.caeModel.roughness, (value: number) => {
-  if (caeMesh && caeMesh.material) {
-    (caeMesh.material as THREE.MeshStandardMaterial).roughness = value
-  }
-})
+  watch(() => guiParams.caeModel.metalness, (value: number) => {
+    if (caeMesh && caeMesh.material) {
+      (caeMesh.material as THREE.MeshStandardMaterial).metalness = value
+    }
+  })
 
-watch(() => guiParams.caeModel.colorMap, () => {
-  updateColors()
-})
+  watch(() => guiParams.caeModel.roughness, (value: number) => {
+    if (caeMesh && caeMesh.material) {
+      (caeMesh.material as THREE.MeshStandardMaterial).roughness = value
+    }
+  })
 
-watch(() => guiParams.scene.autoRotate, (value: boolean) => {
-  controls.autoRotate = value
-})
-
-watch(() => guiParams.scene.rotationSpeed, (value: number) => {
-  controls.autoRotateSpeed = value
-})
-
-watch(() => guiParams.animate, (value: boolean) => {
-  if (value) {
-    playAnimation()
-  } else {
-    stopAnimation()
-  }
-})
-
-watch(() => guiParams.segmentation, (value: boolean) => {
-  if (caeMesh && caeMesh.material) {
-    (caeMesh.material as any).ribbon = value
-    guiParams.caeModel.colorMap = 'grayscale'
+  watch(() => guiParams.caeModel.colorMap, () => {
     updateColors()
-  }
-})
+  })
 
-watch(() => guiParams.planeX.scope, (d: number) => {
-  if (planes[0]) planes[0].constant = d
-})
+  watch(() => guiParams.segmentation, (value: boolean) => {
+    if (caeMesh && caeMesh.material) {
+      (caeMesh.material as any).ribbon = value
+      guiParams.caeModel.colorMap = 'grayscale'
+      updateColors()
+    }
+  })
+}
 
-watch(() => guiParams.planeX.plan, (v: boolean) => {
-  if (planeHelpers[0]) planeHelpers[0].visible = v
-})
+function setupSceneWatchers() {
+  watch(() => guiParams.scene.autoRotate, (value: boolean) => {
+    controls.autoRotate = value
+  })
 
-watch(() => guiParams.planeY.scope, (d: number) => {
-  if (planes[1]) planes[1].constant = d
-})
+  watch(() => guiParams.scene.rotationSpeed, (value: number) => {
+    controls.autoRotateSpeed = value
+  })
+}
 
-watch(() => guiParams.planeY.plan, (v: boolean) => {
-  if (planeHelpers[1]) planeHelpers[1].visible = v
-})
+function setupAnimationWatchers() {
+  watch(() => guiParams.animate, (value: boolean) => {
+    if (value) {
+      playAnimation()
+    } else {
+      stopAnimation()
+    }
+  })
+}
 
-watch(() => guiParams.planeZ.scope, (d: number) => {
-  if (planes[2]) planes[2].constant = d
-})
+function setupPlaneWatchers() {
+  watch(() => guiParams.planeX.scope, (d: number) => {
+    if (planes[0]) planes[0].constant = d
+  })
+  watch(() => guiParams.planeX.plan, (v: boolean) => {
+    if (planeHelpers[0]) planeHelpers[0].visible = v
+  })
 
-watch(() => guiParams.planeZ.plan, (v: boolean) => {
-  if (planeHelpers[2]) planeHelpers[2].visible = v
-})
+  watch(() => guiParams.planeY.scope, (d: number) => {
+    if (planes[1]) planes[1].constant = d
+  })
+  watch(() => guiParams.planeY.plan, (v: boolean) => {
+    if (planeHelpers[1]) planeHelpers[1].visible = v
+  })
+
+  watch(() => guiParams.planeZ.scope, (d: number) => {
+    if (planes[2]) planes[2].constant = d
+  })
+  watch(() => guiParams.planeZ.plan, (v: boolean) => {
+    if (planeHelpers[2]) planeHelpers[2].visible = v
+  })
+}
+
+function setupDataWatchers() {
+  watch(() => guiParams.typenode, (newType) => {
+    guiParams.nownode = guiParams.nodes[newType] || []
+    if (guiParams.nownode.length > 0) {
+      guiParams.frame = guiParams.nownode[0]?.key || ''
+      updateTimes()
+      updateFrameOptions()
+    } else {
+      guiParams.frame = ''
+      frameOptions.value = []
+    }
+  })
+
+  watch(() => guiParams.frame, () => {
+    updateTimes()
+  })
+}
+
+// ----------------------------------------------------------------------------- 
+// Three.js 初始化帮助方法
+// -----------------------------------------------------------------------------
 
 // 动画时钟（用于物体动画）
 const clock = new THREE.Clock()
@@ -423,10 +513,8 @@ function initVRInteraction() {
   setTimeout(() => {
     if (guiPanelRef.value && interactiveGroup) {
       guiMesh = new HTMLMesh(guiPanelRef.value)
-      guiMesh.position.x = -2.0
-      guiMesh.position.y = 1.5
-      guiMesh.position.z = -2.0
-      // guiMesh.rotation.y = Math.PI / 5
+      guiMesh.position.copy(guiPanelDefaultPosition)
+      guiMesh.quaternion.identity()
       guiMesh.scale.setScalar(2.5)
       guiMesh.name = 'GUI_Mesh';
       interactiveGroup.add(guiMesh)
@@ -447,39 +535,74 @@ function initVRInteraction() {
     }
     if (lutBodyRef.value && interactiveGroup) {
       lutMesh = new HTMLMesh(lutBodyRef.value);
-      lutMesh.position.x = -3.0;
-      lutMesh.position.y = 1.5;
-      lutMesh.position.z = -2.0;
-      lutMesh.scale.setScalar(2.5);
+      lutMesh.position.copy(lutPanelDefaultPosition);
+      lutMesh.quaternion.identity();
+      lutMesh.scale.setScalar(3);
       lutMesh.name = 'LUT_Mesh';
       interactiveGroup.add(lutMesh)
     }
   }, 100) // 延迟100ms确保DOM已完全渲染
 }
 
-const interactableObjects: THREE.Object3D[] = []
-
-
-interface Task {
-  name?: string;
-  val?: Array<number>;
-  max?: number;
-  min?: number;
-  key?: string;
-  nameKey?: string;
-  valIsArray?: boolean;
-  unit?: string;
+async function initRenderPipeline() {
+  initSceneAndLight();
+  initCamera();
+  initRenderer();
+  initControls();
+  initVRInteraction();
 }
 
-const newTaskValues: Array<{
-  value: Array<Task>;
-  name: string;
-  nameKey: string;
-  unit: string;
-  valIsArray: boolean;
-}> = [];
+function updateVRUIPanels() {
+  if (!camera || !renderer || !renderer.xr.isPresenting) return
+  if (!guiMesh && !lutMesh) return
 
-// 加载 CAE 模型数据 - 参考 oldModel.vue 的简化方式
+  camera.getWorldPosition(vrCameraWorldPos)
+  camera.getWorldQuaternion(vrCameraWorldQuat)
+
+  vrPanelForward.set(0, 0, -1).applyQuaternion(vrCameraWorldQuat).normalize()
+  vrPanelRight.set(1, 0, 0).applyQuaternion(vrCameraWorldQuat).normalize()
+  vrPanelUp.set(0, 1, 0).applyQuaternion(vrCameraWorldQuat).normalize()
+
+  vrPanelBasePosition.copy(vrCameraWorldPos)
+  vrPanelTempVector.copy(vrPanelForward).multiplyScalar(vrUIPanelConfig.distance)
+  vrPanelBasePosition.add(vrPanelTempVector)
+  vrPanelTempVector.copy(vrPanelUp).multiplyScalar(vrUIPanelConfig.verticalOffset)
+  vrPanelBasePosition.add(vrPanelTempVector)
+
+  if (guiMesh) {
+    vrPanelTempVector.copy(vrPanelRight).multiplyScalar(-vrUIPanelConfig.horizontalOffset)
+    guiMesh.position.copy(vrPanelBasePosition).add(vrPanelTempVector)
+    guiMesh.quaternion.copy(vrCameraWorldQuat)
+  }
+
+  if (lutMesh) {
+    vrPanelTempVector.copy(vrPanelRight).multiplyScalar(vrUIPanelConfig.horizontalOffset)
+    lutMesh.position.copy(vrPanelBasePosition).add(vrPanelTempVector)
+    lutMesh.quaternion.copy(vrCameraWorldQuat)
+  }
+}
+
+function resetVRUIPanelTransforms() {
+  if (guiMesh) {
+    guiMesh.position.copy(guiPanelDefaultPosition)
+    guiMesh.quaternion.identity()
+  }
+  if (lutMesh) {
+    lutMesh.position.copy(lutPanelDefaultPosition)
+    lutMesh.quaternion.identity()
+  }
+}
+
+async function preloadSceneAssets() {
+  await loadBaseScene();
+  loadCAEModel();
+}
+
+// -----------------------------------------------------------------------------
+// 资源加载 & 数据准备
+// -----------------------------------------------------------------------------
+
+// 加载 CAE 模型数据
 async function loadCAEModel() {
   try {
 
@@ -512,7 +635,7 @@ async function loadCAEModel() {
     geometry.computeBoundingBox()
     const bbox = geometry.boundingBox!
 
-    // 参考 oldModel.vue：只做 Y 轴偏移，让模型底部在 y=0
+    // Y 轴偏移，让模型底部在 y=0
     const offsetY = -bbox.min.y
     const positionAttr = geometry.attributes.position
     if (positionAttr) {
@@ -656,6 +779,10 @@ async function loadBaseScene() {
   }
 }
 
+// -----------------------------------------------------------------------------
+// 视角聚焦 & 剖切设置
+// -----------------------------------------------------------------------------
+
 function focusObj(target: THREE.Object3D) {
   let distance: number
   const delta = new THREE.Vector3()
@@ -676,10 +803,6 @@ function focusObj(target: THREE.Object3D) {
   // 保存模型信息供 VR 模式使用
   caeModelCenter.copy(center)
   caeViewDistance = distance * 2
-
-  // 更新 VR 地面高度 - 使用场景中心高度
-  // groundLevel = ground.position.y + 1.6
-  groundLevel = 1.6 // 默认眼睛高度
 
   delta.set(0, 0, 1)
   delta.applyQuaternion(camera.quaternion)
@@ -729,28 +852,6 @@ function updateFrameOptions() {
     frameOptions.value = []
   }
 }
-
-// 监听数据类型变化
-watch(() => guiParams.typenode, (newType) => {
-  guiParams.nownode = guiParams.nodes[newType] || []
-  if (guiParams.nownode.length > 0) {
-    guiParams.frame = guiParams.nownode[0]?.key || ''
-    updateTimes()
-    updateFrameOptions()
-  }
-})
-
-// 监听时间帧变化
-watch(() => guiParams.frame, () => {
-  updateTimes()
-})
-
-// 裁剪平面范围（动态，会在模型加载后更新）
-const planeRanges = ref({
-  x: { min: -10, max: 10 },
-  y: { min: -10, max: 10 },
-  z: { min: -10, max: 10 }
-})
 
 // 更新裁剪平面范围 - 参考 oldModel.vue 的方式
 function updateClippingPlaneRanges() {
@@ -802,6 +903,10 @@ function updateClippingPlaneRanges() {
     planes[2].constant = maxZ + 10
   }
 }
+
+// -----------------------------------------------------------------------------
+// 颜色映射 & LUT 更新
+// -----------------------------------------------------------------------------
 
 // 更新颜色
 function updateColors() {
@@ -1030,6 +1135,10 @@ function applyBoxUV(bufferGeometry: THREE.BufferGeometry, transformMatrix: THREE
   _applyBoxUV(bufferGeometry, transformMatrix, uvBbox, boxSize);
 }
 
+// -----------------------------------------------------------------------------
+// 动画/交互行为
+// -----------------------------------------------------------------------------
+
 // 更新时间帧数据
 function updateTimes() {
   newTaskValues.forEach(v => {
@@ -1126,8 +1235,6 @@ function initMouseValueDisplay() {
   })
 }
 
-const originalMaterials = new Map<THREE.Object3D, THREE.Material>();
-
 function handleResize() {
   if (!container.value) return
   const width = container.value.clientWidth;
@@ -1137,18 +1244,6 @@ function handleResize() {
   renderer.setSize(width, height);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 }
-
-
-
-
-// 游戏逻辑状态 - 由VR管理器内部管理
-let groundLevel = 0.6 // VR 眼睛高度，会在模型加载后更新
-let grabbedObject: THREE.Object3D | null = null // 当前被抓取的物体
-
-const isVRMode = ref(false)
-const showGUI2D = ref(true) // 控制 2D GUI 面板显示（桌面模式下默认显示）
-const showGUI3D = ref(true) // 控制 3D GUI 面板显示（默认显示）
-
 function animationLoop() {
   const deltaTime = clock.getDelta()
   const elapsedTime = clock.getElapsedTime()
@@ -1191,6 +1286,10 @@ function animationLoop() {
     vrManager.update()
     // 同步VR管理器中的抓取状态
     grabbedObject = vrManager.getGrabbedObject()
+  }
+
+  if (renderer && renderer.xr.isPresenting) {
+    updateVRUIPanels()
   }
 
   // 渲染场景
@@ -1347,224 +1446,252 @@ function mapTaskData(taskvals: Array<{
 }
 
 
-onMounted(async () => {
-  if (!container.value) return
+function registerLifecycleHooks() {
+  onMounted(async () => {
+    if (!container.value) return
 
-  // ========== Three.js 初始化 ==========
-  initSceneAndLight();
-  initCamera();
-  initRenderer();
-  initControls();
-  initVRInteraction(); // 初始化 VR 交互
-  // 初始化 VR 管理器
-  vrManager = new VRManager({
-    renderer,
-    scene,
-    camera,
-    controls,
-    mesh: caeMesh || undefined,
-    testObjects: interactableObjects as THREE.Mesh[],
-    caeModelCenter,
-    caeViewDistance,
-    onSessionStart: () => {
-      isVRMode.value = true
-      showGUI2D.value = false // VR 模式下隐藏 2D GUI
-      showGUI3D.value = true // VR 模式下确保显示 3D GUI
-      // 确保 3D GUI 可见
-      if (guiMesh) {
-        guiMesh.visible = true
-        if (guiMesh.material.map) {
-          guiMesh.material.map.needsUpdate = true
+    // ========== Three.js 初始化 ==========
+    await initRenderPipeline(); // 初始化 VR 交互
+    // 初始化 VR 管理器
+    vrManager = new VRManager({
+      renderer,
+      scene,
+      camera,
+      controls,
+      mesh: caeMesh || undefined,
+      testObjects: interactableObjects as THREE.Mesh[],
+      caeModelCenter,
+      caeViewDistance,
+      onSessionStart: () => {
+        isVRMode.value = true
+        showGUI2D.value = false // VR 模式下隐藏 2D GUI
+        showGUI3D.value = true // VR 模式下确保显示 3D GUI
+        // 确保 3D GUI 可见
+        if (guiMesh) {
+          guiMesh.visible = true
+          if (guiMesh.material.map) {
+            guiMesh.material.map.needsUpdate = true
+          }
         }
-      }
-      if (lutMesh) {
-        lutMesh.visible = true
-        if (lutMesh.material.map) {
-          lutMesh.material.map.needsUpdate = true
+        if (lutMesh) {
+          lutMesh.visible = true
+          if (lutMesh.material.map) {
+            lutMesh.material.map.needsUpdate = true
+          }
         }
-      }
-    },
-    onSessionEnd: () => {
-      isVRMode.value = false
-      showGUI2D.value = true // 返回桌面模式，显示 2D GUI
-      showGUI3D.value = true // 保持 3D GUI 显示
-      // 确保 3D GUI 可见
-      if (guiMesh) {
-        guiMesh.visible = true
-        if (guiMesh.material.map) {
-          guiMesh.material.map.needsUpdate = true
+        updateVRUIPanels()
+      },
+      onSessionEnd: () => {
+        isVRMode.value = false
+        showGUI2D.value = true // 返回桌面模式，显示 2D GUI
+        showGUI3D.value = true // 保持 3D GUI 显示
+        // 确保 3D GUI 可见
+        if (guiMesh) {
+          guiMesh.visible = true
+          if (guiMesh.material.map) {
+            guiMesh.material.map.needsUpdate = true
+          }
         }
-      }
-      if (lutMesh) {
-        lutMesh.visible = true
-        if (lutMesh.material.map) {
-          lutMesh.material.map.needsUpdate = true
+        if (lutMesh) {
+          lutMesh.visible = true
+          if (lutMesh.material.map) {
+            lutMesh.material.map.needsUpdate = true
+          }
         }
+        resetVRUIPanelTransforms()
       }
+    })
+    vrManager.init(container.value)
+
+    // 加载基础场景与 CAE 模型
+    await preloadSceneAssets();
+
+    // 初始化鼠标悬停数值显示
+    initMouseValueDisplay();
+
+    window.addEventListener('resize', handleResize)
+
+    // 主动画循环
+    renderer.setAnimationLoop(animationLoop)
+  })
+
+  // 组件卸载时的清理
+  onUnmounted(() => {
+    if (animationCleanup) {
+      animationCleanup()
+    }
+    if (vrManager) {
+      vrManager.dispose()
     }
   })
-  vrManager.init(container.value)
-
-  // 加载基础场景
-  await loadBaseScene();
-
-  // 加载 CAE 模型
-  loadCAEModel();
-
-  // 初始化鼠标悬停数值显示
-  initMouseValueDisplay();
-
-  window.addEventListener('resize', handleResize)
-
-  // 主动画循环
-  renderer.setAnimationLoop(animationLoop)
-})
-
-// 组件卸载时的清理
-onUnmounted(() => {
-  if (animationCleanup) {
-    animationCleanup()
-  }
-  if (vrManager) {
-    vrManager.dispose()
-  }
-})
+}
 </script>
 
 <template>
-  <div ref="container" class="model-container"></div>
+  <div class="model-root">
+    <div ref="container" class="model-container"></div>
 
-  <!-- 2D GUI 面板（桌面模式）-->
-  <div v-show="showGUI2D && !isVRMode" class="gui-panel">
-    <div class="gui-title">CAE 模型控制</div>
+    <!-- 桌面模式 UI（2D GUI + LUT） -->
+    <div v-show="showGUI2D && !isVRMode" class="desktop-ui">
+      <div class="gui-panel">
+        <div class="gui-title">CAE 模型控制</div>
 
-    <!-- CAE 模型控制 -->
-    <div class="gui-section">
-      <div class="section-title">CAE 模型</div>
-      <CustomCheckbox v-model="guiParams.caeModel.visible" label="显示" />
-      <CustomCheckbox v-model="guiParams.caeModel.wireframe" label="线框模式" />
-      <CustomSlider v-model="guiParams.caeModel.opacity" label="透明度" :min="0" :max="1" :step="0.1" :decimals="1" />
-      <CustomSlider v-model="guiParams.caeModel.metalness" label="金属度" :min="0" :max="1" :step="0.1" :decimals="1" />
-      <CustomSlider v-model="guiParams.caeModel.roughness" label="粗糙度" :min="0" :max="1" :step="0.1" :decimals="1" />
+        <!-- CAE 模型控制 -->
+        <div class="gui-section">
+          <div class="section-title">CAE 模型</div>
+          <CustomCheckbox v-model="guiParams.caeModel.visible" label="显示" />
+          <CustomCheckbox v-model="guiParams.caeModel.wireframe" label="线框模式" />
+          <CustomSlider v-model="guiParams.caeModel.opacity" label="透明度" :min="0" :max="1" :step="0.1"
+            :decimals="1" />
+          <CustomSlider v-model="guiParams.caeModel.metalness" label="金属度" :min="0" :max="1" :step="0.1"
+            :decimals="1" />
+          <CustomSlider v-model="guiParams.caeModel.roughness" label="粗糙度" :min="0" :max="1" :step="0.1"
+            :decimals="1" />
+        </div>
+
+        <!-- 数据控制 -->
+        <div class="gui-section" v-if="typeNodeOptions.length > 0">
+          <div class="section-title">数据控制</div>
+          <CustomSelectV2 v-model="guiParams.typenode" label="数据类型" :options="typeNodeOptions" />
+          <CustomSelectV2 v-if="frameOptions.length > 0" v-model="guiParams.frame" label="时间帧"
+            :options="frameOptions" />
+        </div>
+
+        <!-- 颜色和动画 -->
+        <div class="gui-section">
+          <div class="section-title">颜色和动画</div>
+          <CustomSelectV2 v-model="guiParams.caeModel.colorMap" label="颜色映射" :options="colorMapOptions" />
+          <CustomCheckbox v-model="guiParams.animate" label="动画播放" />
+          <CustomCheckbox v-model="guiParams.segmentation" label="分割模式" />
+        </div>
+
+        <!-- 场景控制 -->
+        <div class="gui-section">
+          <div class="section-title">场景控制</div>
+          <CustomCheckbox v-model="guiParams.scene.autoRotate" label="自动旋转" />
+          <CustomSlider v-model="guiParams.scene.rotationSpeed" label="旋转速度" :min="0.1" :max="5" :step="0.1"
+            :decimals="1" />
+        </div>
+
+        <!-- 裁剪平面 -->
+        <div class="gui-section">
+          <div class="section-title">裁剪平面</div>
+          <CustomCheckbox v-model="guiParams.planeX.plan" label="显示X轴" />
+          <CustomSlider v-model="guiParams.planeX.scope" label="X轴位置" :min="planeRanges.x.min"
+            :max="planeRanges.x.max" :step="0.01" :decimals="2" />
+          <CustomCheckbox v-model="guiParams.planeY.plan" label="显示Y轴" />
+          <CustomSlider v-model="guiParams.planeY.scope" label="Y轴位置" :min="planeRanges.y.min"
+            :max="planeRanges.y.max" :step="0.01" :decimals="2" />
+          <CustomCheckbox v-model="guiParams.planeZ.plan" label="显示Z轴" />
+          <CustomSlider v-model="guiParams.planeZ.scope" label="Z轴位置" :min="planeRanges.z.min"
+            :max="planeRanges.z.max" :step="0.01" :decimals="2" />
+        </div>
+      </div>
+
+      <div class="lut-panel-2d">
+        <div class="flex-2d">
+          <div ref="shuzhiRef2D" class="mr-1" />
+          <div ref="lutRef2D" />
+        </div>
+      </div>
     </div>
 
-    <!-- 数据控制 -->
-    <div class="gui-section" v-if="typeNodeOptions.length > 0">
-      <div class="section-title">数据控制</div>
-      <CustomSelectV2 v-model="guiParams.typenode" label="数据类型" :options="typeNodeOptions" />
-      <CustomSelectV2 v-if="frameOptions.length > 0" v-model="guiParams.frame" label="时间帧" :options="frameOptions" />
+    <!-- VR 模式使用的 3D GUI HTMLMesh -->
+    <div v-show="showGUI3D" class="vr-overlays">
+      <div ref="guiPanelRef" class="gui-panel-3d">
+        <div class="gui-title">CAE 模型控制</div>
+
+        <!-- CAE 模型控制 -->
+        <div class="gui-section">
+          <div class="section-title">CAE 模型</div>
+          <CustomCheckbox v-model="guiParams.caeModel.visible" label="显示" />
+          <CustomCheckbox v-model="guiParams.caeModel.wireframe" label="线框模式" />
+          <CustomSlider v-model="guiParams.caeModel.opacity" label="透明度" :min="0" :max="1" :step="0.1"
+            :decimals="1" />
+          <CustomSlider v-model="guiParams.caeModel.metalness" label="金属度" :min="0" :max="1" :step="0.1"
+            :decimals="1" />
+          <CustomSlider v-model="guiParams.caeModel.roughness" label="粗糙度" :min="0" :max="1" :step="0.1"
+            :decimals="1" />
+        </div>
+
+        <!-- 数据控制 -->
+        <div class="gui-section" v-if="typeNodeOptions.length > 0">
+          <div class="section-title">数据控制</div>
+          <CustomSelectV2 v-model="guiParams.typenode" label="数据类型" :options="typeNodeOptions" />
+          <CustomSelectV2 v-if="frameOptions.length > 0" v-model="guiParams.frame" label="时间帧"
+            :options="frameOptions" />
+        </div>
+
+        <!-- 颜色和动画 -->
+        <div class="gui-section">
+          <div class="section-title">颜色和动画</div>
+          <CustomSelectV2 v-model="guiParams.caeModel.colorMap" label="颜色映射" :options="colorMapOptions" />
+          <CustomCheckbox v-model="guiParams.animate" label="动画播放" />
+          <CustomCheckbox v-model="guiParams.segmentation" label="分割模式" />
+        </div>
+
+        <!-- 场景控制 -->
+        <div class="gui-section">
+          <div class="section-title">场景控制</div>
+          <CustomCheckbox v-model="guiParams.scene.autoRotate" label="自动旋转" />
+          <CustomSlider v-model="guiParams.scene.rotationSpeed" label="旋转速度" :min="0.1" :max="5" :step="0.1"
+            :decimals="1" />
+        </div>
+
+        <!-- 裁剪平面 -->
+        <div class="gui-section">
+          <div class="section-title">裁剪平面</div>
+          <CustomCheckbox v-model="guiParams.planeX.plan" label="显示X轴" />
+          <CustomSlider v-model="guiParams.planeX.scope" label="X轴位置" :min="planeRanges.x.min"
+            :max="planeRanges.x.max" :step="0.01" :decimals="2" />
+          <CustomCheckbox v-model="guiParams.planeY.plan" label="显示Y轴" />
+          <CustomSlider v-model="guiParams.planeY.scope" label="Y轴位置" :min="planeRanges.y.min"
+            :max="planeRanges.y.max" :step="0.01" :decimals="2" />
+          <CustomCheckbox v-model="guiParams.planeZ.plan" label="显示Z轴" />
+          <CustomSlider v-model="guiParams.planeZ.scope" label="Z轴位置" :min="planeRanges.z.min"
+            :max="planeRanges.z.max" :step="0.01" :decimals="2" />
+        </div>
+      </div>
+
+      <!-- LUT 颜色条和数值显示 (3D HTMLMesh) -->
+      <div class="lut-shuzhi" ref="lutBodyRef">
+        <div class="flex">
+          <div ref="shuzhiRef" class="mr-1" />
+          <div ref="lutRef" />
+        </div>
+      </div>
     </div>
 
-    <!-- 颜色和动画 -->
-    <div class="gui-section">
-      <div class="section-title">颜色和动画</div>
-      <CustomSelectV2 v-model="guiParams.caeModel.colorMap" label="颜色映射" :options="colorMapOptions" />
-      <CustomCheckbox v-model="guiParams.animate" label="动画播放" />
-      <CustomCheckbox v-model="guiParams.segmentation" label="分割模式" />
-    </div>
-
-    <!-- 场景控制 -->
-    <div class="gui-section">
-      <div class="section-title">场景控制</div>
-      <CustomCheckbox v-model="guiParams.scene.autoRotate" label="自动旋转" />
-      <CustomSlider v-model="guiParams.scene.rotationSpeed" label="旋转速度" :min="0.1" :max="5" :step="0.1"
-        :decimals="1" />
-    </div>
-
-    <!-- 裁剪平面 -->
-    <div class="gui-section">
-      <div class="section-title">裁剪平面</div>
-      <CustomCheckbox v-model="guiParams.planeX.plan" label="显示X轴" />
-      <CustomSlider v-model="guiParams.planeX.scope" label="X轴位置" :min="planeRanges.x.min" :max="planeRanges.x.max"
-        :step="0.01" :decimals="2" />
-      <CustomCheckbox v-model="guiParams.planeY.plan" label="显示Y轴" />
-      <CustomSlider v-model="guiParams.planeY.scope" label="Y轴位置" :min="planeRanges.y.min" :max="planeRanges.y.max"
-        :step="0.01" :decimals="2" />
-      <CustomCheckbox v-model="guiParams.planeZ.plan" label="显示Z轴" />
-      <CustomSlider v-model="guiParams.planeZ.scope" label="Z轴位置" :min="planeRanges.z.min" :max="planeRanges.z.max"
-        :step="0.01" :decimals="2" />
-    </div>
+    <!-- 鼠标悬停数值显示 -->
+    <!-- <div v-show="showValuePopover" :style="{ left: `${mouseLocation.x}px`, top: `${mouseLocation.y}px` }"
+      class="value-popover">
+      {{ formatNumber(pointValue) }}
+    </div> -->
   </div>
-
-  <!-- 2D LUT 颜色条面板（桌面模式）-->
-  <div v-show="showGUI2D && !isVRMode" class="lut-panel-2d">
-    <div class="flex-2d">
-      <div ref="shuzhiRef2D" class="mr-1" />
-      <div ref="lutRef2D" />
-    </div>
-  </div>
-
-  <!-- 3D GUI 面板（HTMLMesh 内容）-->
-  <div ref="guiPanelRef" class="gui-panel-3d">
-    <div class="gui-title">CAE 模型控制</div>
-
-    <!-- CAE 模型控制 -->
-    <div class="gui-section">
-      <div class="section-title">CAE 模型</div>
-      <CustomCheckbox v-model="guiParams.caeModel.visible" label="显示" />
-      <CustomCheckbox v-model="guiParams.caeModel.wireframe" label="线框模式" />
-      <CustomSlider v-model="guiParams.caeModel.opacity" label="透明度" :min="0" :max="1" :step="0.1" :decimals="1" />
-      <CustomSlider v-model="guiParams.caeModel.metalness" label="金属度" :min="0" :max="1" :step="0.1" :decimals="1" />
-      <CustomSlider v-model="guiParams.caeModel.roughness" label="粗糙度" :min="0" :max="1" :step="0.1" :decimals="1" />
-    </div>
-
-    <!-- 数据控制 -->
-    <div class="gui-section" v-if="typeNodeOptions.length > 0">
-      <div class="section-title">数据控制</div>
-      <CustomSelectV2 v-model="guiParams.typenode" label="数据类型" :options="typeNodeOptions" />
-      <CustomSelectV2 v-if="frameOptions.length > 0" v-model="guiParams.frame" label="时间帧" :options="frameOptions" />
-    </div>
-
-    <!-- 颜色和动画 -->
-    <div class="gui-section">
-      <div class="section-title">颜色和动画</div>
-      <CustomSelectV2 v-model="guiParams.caeModel.colorMap" label="颜色映射" :options="colorMapOptions" />
-      <CustomCheckbox v-model="guiParams.animate" label="动画播放" />
-      <CustomCheckbox v-model="guiParams.segmentation" label="分割模式" />
-    </div>
-
-    <!-- 场景控制 -->
-    <div class="gui-section">
-      <div class="section-title">场景控制</div>
-      <CustomCheckbox v-model="guiParams.scene.autoRotate" label="自动旋转" />
-      <CustomSlider v-model="guiParams.scene.rotationSpeed" label="旋转速度" :min="0.1" :max="5" :step="0.1"
-        :decimals="1" />
-    </div>
-
-    <!-- 裁剪平面 -->
-    <div class="gui-section">
-      <div class="section-title">裁剪平面</div>
-      <CustomCheckbox v-model="guiParams.planeX.plan" label="显示X轴" />
-      <CustomSlider v-model="guiParams.planeX.scope" label="X轴位置" :min="planeRanges.x.min" :max="planeRanges.x.max"
-        :step="0.01" :decimals="2" />
-      <CustomCheckbox v-model="guiParams.planeY.plan" label="显示Y轴" />
-      <CustomSlider v-model="guiParams.planeY.scope" label="Y轴位置" :min="planeRanges.y.min" :max="planeRanges.y.max"
-        :step="0.01" :decimals="2" />
-      <CustomCheckbox v-model="guiParams.planeZ.plan" label="显示Z轴" />
-      <CustomSlider v-model="guiParams.planeZ.scope" label="Z轴位置" :min="planeRanges.z.min" :max="planeRanges.z.max"
-        :step="0.01" :decimals="2" />
-    </div>
-  </div>
-
-  <!-- LUT 颜色条和数值显示 (3D HTMLMesh) -->
-  <div class="lut-shuzhi" ref="lutBodyRef">
-    <div class="flex">
-      <div ref="shuzhiRef" class="mr-1" />
-      <div ref="lutRef" />
-    </div>
-  </div>
-
-  <!-- 鼠标悬停数值显示 -->
-  <!-- <div v-show="showValuePopover" :style="{ left: `${mouseLocation.x}px`, top: `${mouseLocation.y}px` }"
-    class="value-popover">
-    {{ formatNumber(pointValue) }}
-  </div> -->
 </template>
 
 <style scoped>
+.model-root {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
 .model-container {
   width: 100%;
   height: 100%;
+}
+
+.desktop-ui,
+.vr-overlays {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.desktop-ui > *,
+.vr-overlays > * {
+  pointer-events: auto;
 }
 
 /* HTMLMesh 3D GUI 面板样式 */
