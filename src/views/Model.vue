@@ -941,7 +941,7 @@ function updateLutDisplay() {
   if (lutRef.value && shuzhiRef.value) {
     updateLutDisplayForRefs(lutRef.value, shuzhiRef.value)
   }
-  
+
   // 更新 2D 版本（桌面模式）
   if (lutRef2D.value && shuzhiRef2D.value) {
     updateLutDisplayForRefs(lutRef2D.value, shuzhiRef2D.value)
@@ -1534,57 +1534,36 @@ function registerLifecycleHooks() {
     <!-- 桌面模式 UI（2D GUI + LUT） -->
     <div v-show="showGUI2D && !isVRMode" class="desktop-ui">
       <div class="gui-panel">
-        <div class="gui-title">CAE 模型控制</div>
-
         <!-- CAE 模型控制 -->
         <div class="gui-section">
-          <div class="section-title">CAE 模型</div>
           <CustomCheckbox v-model="guiParams.caeModel.visible" label="显示" />
           <CustomCheckbox v-model="guiParams.caeModel.wireframe" label="线框模式" />
-          <CustomSlider v-model="guiParams.caeModel.opacity" label="透明度" :min="0" :max="1" :step="0.1"
-            :decimals="1" />
+          <CustomSlider v-model="guiParams.caeModel.opacity" label="透明度" :min="0" :max="1" :step="0.1" :decimals="1" />
           <CustomSlider v-model="guiParams.caeModel.metalness" label="金属度" :min="0" :max="1" :step="0.1"
             :decimals="1" />
           <CustomSlider v-model="guiParams.caeModel.roughness" label="粗糙度" :min="0" :max="1" :step="0.1"
             :decimals="1" />
-        </div>
-
-        <!-- 数据控制 -->
-        <div class="gui-section" v-if="typeNodeOptions.length > 0">
-          <div class="section-title">数据控制</div>
           <CustomSelectV2 v-model="guiParams.typenode" label="数据类型" :options="typeNodeOptions" />
           <CustomSelectV2 v-if="frameOptions.length > 0" v-model="guiParams.frame" label="时间帧"
             :options="frameOptions" />
-        </div>
 
-        <!-- 颜色和动画 -->
-        <div class="gui-section">
-          <div class="section-title">颜色和动画</div>
           <CustomSelectV2 v-model="guiParams.caeModel.colorMap" label="颜色映射" :options="colorMapOptions" />
           <CustomCheckbox v-model="guiParams.animate" label="动画播放" />
           <CustomCheckbox v-model="guiParams.segmentation" label="分割模式" />
-        </div>
 
-        <!-- 场景控制 -->
-        <div class="gui-section">
-          <div class="section-title">场景控制</div>
           <CustomCheckbox v-model="guiParams.scene.autoRotate" label="自动旋转" />
           <CustomSlider v-model="guiParams.scene.rotationSpeed" label="旋转速度" :min="0.1" :max="5" :step="0.1"
             :decimals="1" />
-        </div>
 
-        <!-- 裁剪平面 -->
-        <div class="gui-section">
-          <div class="section-title">裁剪平面</div>
           <CustomCheckbox v-model="guiParams.planeX.plan" label="显示X轴" />
-          <CustomSlider v-model="guiParams.planeX.scope" label="X轴位置" :min="planeRanges.x.min"
-            :max="planeRanges.x.max" :step="0.01" :decimals="2" />
+          <CustomSlider v-model="guiParams.planeX.scope" label="X轴位置" :min="planeRanges.x.min" :max="planeRanges.x.max"
+            :step="0.01" :decimals="2" />
           <CustomCheckbox v-model="guiParams.planeY.plan" label="显示Y轴" />
-          <CustomSlider v-model="guiParams.planeY.scope" label="Y轴位置" :min="planeRanges.y.min"
-            :max="planeRanges.y.max" :step="0.01" :decimals="2" />
+          <CustomSlider v-model="guiParams.planeY.scope" label="Y轴位置" :min="planeRanges.y.min" :max="planeRanges.y.max"
+            :step="0.01" :decimals="2" />
           <CustomCheckbox v-model="guiParams.planeZ.plan" label="显示Z轴" />
-          <CustomSlider v-model="guiParams.planeZ.scope" label="Z轴位置" :min="planeRanges.z.min"
-            :max="planeRanges.z.max" :step="0.01" :decimals="2" />
+          <CustomSlider v-model="guiParams.planeZ.scope" label="Z轴位置" :min="planeRanges.z.min" :max="planeRanges.z.max"
+            :step="0.01" :decimals="2" />
         </div>
       </div>
 
@@ -1602,55 +1581,31 @@ function registerLifecycleHooks() {
         <div class="gui-title">CAE 模型控制</div>
 
         <!-- CAE 模型控制 -->
-        <div class="gui-section">
-          <div class="section-title">CAE 模型</div>
-          <CustomCheckbox v-model="guiParams.caeModel.visible" label="显示" />
-          <CustomCheckbox v-model="guiParams.caeModel.wireframe" label="线框模式" />
-          <CustomSlider v-model="guiParams.caeModel.opacity" label="透明度" :min="0" :max="1" :step="0.1"
-            :decimals="1" />
-          <CustomSlider v-model="guiParams.caeModel.metalness" label="金属度" :min="0" :max="1" :step="0.1"
-            :decimals="1" />
-          <CustomSlider v-model="guiParams.caeModel.roughness" label="粗糙度" :min="0" :max="1" :step="0.1"
-            :decimals="1" />
-        </div>
+        <CustomCheckbox v-model="guiParams.caeModel.visible" label="显示" />
+        <CustomCheckbox v-model="guiParams.caeModel.wireframe" label="线框模式" />
+        <CustomSlider v-model="guiParams.caeModel.opacity" label="透明度" :min="0" :max="1" :step="0.1" :decimals="1" />
+        <CustomSlider v-model="guiParams.caeModel.metalness" label="金属度" :min="0" :max="1" :step="0.1" :decimals="1" />
+        <CustomSlider v-model="guiParams.caeModel.roughness" label="粗糙度" :min="0" :max="1" :step="0.1" :decimals="1" />
+        <CustomSelectV2 v-model="guiParams.typenode" label="数据类型" :options="typeNodeOptions" />
+        <CustomSelectV2 v-if="frameOptions.length > 0" v-model="guiParams.frame" label="时间帧" :options="frameOptions" />
+        <CustomSelectV2 v-model="guiParams.caeModel.colorMap" label="颜色映射" :options="colorMapOptions" />
+        <CustomCheckbox v-model="guiParams.animate" label="动画播放" />
+        <CustomCheckbox v-model="guiParams.segmentation" label="分割模式" />
 
-        <!-- 数据控制 -->
-        <div class="gui-section" v-if="typeNodeOptions.length > 0">
-          <div class="section-title">数据控制</div>
-          <CustomSelectV2 v-model="guiParams.typenode" label="数据类型" :options="typeNodeOptions" />
-          <CustomSelectV2 v-if="frameOptions.length > 0" v-model="guiParams.frame" label="时间帧"
-            :options="frameOptions" />
-        </div>
-
-        <!-- 颜色和动画 -->
-        <div class="gui-section">
-          <div class="section-title">颜色和动画</div>
-          <CustomSelectV2 v-model="guiParams.caeModel.colorMap" label="颜色映射" :options="colorMapOptions" />
-          <CustomCheckbox v-model="guiParams.animate" label="动画播放" />
-          <CustomCheckbox v-model="guiParams.segmentation" label="分割模式" />
-        </div>
-
-        <!-- 场景控制 -->
-        <div class="gui-section">
-          <div class="section-title">场景控制</div>
-          <CustomCheckbox v-model="guiParams.scene.autoRotate" label="自动旋转" />
-          <CustomSlider v-model="guiParams.scene.rotationSpeed" label="旋转速度" :min="0.1" :max="5" :step="0.1"
-            :decimals="1" />
-        </div>
+        <CustomCheckbox v-model="guiParams.scene.autoRotate" label="自动旋转" />
+        <CustomSlider v-model="guiParams.scene.rotationSpeed" label="旋转速度" :min="0.1" :max="5" :step="0.1"
+          :decimals="1" />
 
         <!-- 裁剪平面 -->
-        <div class="gui-section">
-          <div class="section-title">裁剪平面</div>
-          <CustomCheckbox v-model="guiParams.planeX.plan" label="显示X轴" />
-          <CustomSlider v-model="guiParams.planeX.scope" label="X轴位置" :min="planeRanges.x.min"
-            :max="planeRanges.x.max" :step="0.01" :decimals="2" />
-          <CustomCheckbox v-model="guiParams.planeY.plan" label="显示Y轴" />
-          <CustomSlider v-model="guiParams.planeY.scope" label="Y轴位置" :min="planeRanges.y.min"
-            :max="planeRanges.y.max" :step="0.01" :decimals="2" />
-          <CustomCheckbox v-model="guiParams.planeZ.plan" label="显示Z轴" />
-          <CustomSlider v-model="guiParams.planeZ.scope" label="Z轴位置" :min="planeRanges.z.min"
-            :max="planeRanges.z.max" :step="0.01" :decimals="2" />
-        </div>
+        <CustomCheckbox v-model="guiParams.planeX.plan" label="显示X轴" />
+        <CustomSlider v-model="guiParams.planeX.scope" label="X轴位置" :min="planeRanges.x.min" :max="planeRanges.x.max"
+          :step="0.01" :decimals="2" />
+        <CustomCheckbox v-model="guiParams.planeY.plan" label="显示Y轴" />
+        <CustomSlider v-model="guiParams.planeY.scope" label="Y轴位置" :min="planeRanges.y.min" :max="planeRanges.y.max"
+          :step="0.01" :decimals="2" />
+        <CustomCheckbox v-model="guiParams.planeZ.plan" label="显示Z轴" />
+        <CustomSlider v-model="guiParams.planeZ.scope" label="Z轴位置" :min="planeRanges.z.min" :max="planeRanges.z.max"
+          :step="0.01" :decimals="2" />
       </div>
 
       <!-- LUT 颜色条和数值显示 (3D HTMLMesh) -->
@@ -1689,15 +1644,15 @@ function registerLifecycleHooks() {
   pointer-events: none;
 }
 
-.desktop-ui > *,
-.vr-overlays > * {
+.desktop-ui>*,
+.vr-overlays>* {
   pointer-events: auto;
 }
 
 /* HTMLMesh 3D GUI 面板样式 */
 .gui-panel-3d {
   width: 350px;
-  height: 950px;
+  height: 680px;
   background: linear-gradient(135deg, rgba(30, 30, 30, 0.98) 0%, rgba(20, 20, 20, 0.95) 100%);
   padding: 20px;
   border-radius: 12px;
