@@ -43,6 +43,7 @@ interface VRManagerConfig {
   renderer: THREE.WebGLRenderer;
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
+  framebufferScale?: number;
   controls?: OrbitControls;
   gui?: GUI;
   mesh?: THREE.Mesh;
@@ -121,6 +122,9 @@ export class VRManager {
 
     // 启用VR
     this.renderer.xr.enabled = true;
+    if (config.framebufferScale) {
+      this.renderer.xr.setFramebufferScaleFactor(Math.max(1, config.framebufferScale));
+    }
   }
 
   // 更新模型引用和相关参数

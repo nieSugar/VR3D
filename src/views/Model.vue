@@ -54,10 +54,18 @@ let guiMesh: HTMLMesh | null = null // GUI HTMLMesh
 let lutMesh: HTMLMesh | null = null // Lut HTMLMesh
 const guiPanelDefaultPosition = new THREE.Vector3(-1.0, 1.5, -2.0)
 const lutPanelDefaultPosition = new THREE.Vector3(-3.0, 1.5, -2.0)
+// VR UI 面板相对摄像头的偏移配置
 const vrUIPanelConfig = {
-  distance: 3,
-  horizontalOffset: 1,
-  verticalOffset: 0.1
+  gui: {
+    distance: 2.5,           // GUI 面板距摄像头前方的距离
+    horizontalOffset: -0.8,  // GUI 水平偏移（负数在左，正数在右）
+    verticalOffset: 0        // GUI 垂直偏移（正上负下）
+  },
+  lut: {
+    distance: 2.5,           // LUT 面板距摄像头前方的距离
+    horizontalOffset: 1.3,   // LUT 水平偏移（负数在左，正数在右）
+    verticalOffset: -0.5     // LUT 垂直偏移（正上负下）
+  }
 }
 const vrCameraWorldPos = new THREE.Vector3()
 const vrCameraWorldQuat = new THREE.Quaternion()
@@ -552,6 +560,7 @@ async function initRenderPipeline() {
   initVRInteraction();
 }
 
+// 按当前摄像头姿态计算 VR 中 GUI / LUT 面板的位置与朝向
 function updateVRUIPanels() {
   if (!camera || !renderer || !renderer.xr.isPresenting) return
   if (!guiMesh && !lutMesh) return
@@ -563,20 +572,24 @@ function updateVRUIPanels() {
   vrPanelRight.set(1, 0, 0).applyQuaternion(vrCameraWorldQuat).normalize()
   vrPanelUp.set(0, 1, 0).applyQuaternion(vrCameraWorldQuat).normalize()
 
-  vrPanelBasePosition.copy(vrCameraWorldPos)
-  vrPanelTempVector.copy(vrPanelForward).multiplyScalar(vrUIPanelConfig.distance)
-  vrPanelBasePosition.add(vrPanelTempVector)
-  vrPanelTempVector.copy(vrPanelUp).multiplyScalar(vrUIPanelConfig.verticalOffset)
-  vrPanelBasePosition.add(vrPanelTempVector)
-
   if (guiMesh) {
-    vrPanelTempVector.copy(vrPanelRight).multiplyScalar(-vrUIPanelConfig.horizontalOffset)
+    vrPanelBasePosition.copy(vrCameraWorldPos)
+    vrPanelTempVector.copy(vrPanelForward).multiplyScalar(vrUIPanelConfig.gui.distance)
+    vrPanelBasePosition.add(vrPanelTempVector)
+    vrPanelTempVector.copy(vrPanelUp).multiplyScalar(vrUIPanelConfig.gui.verticalOffset)
+    vrPanelBasePosition.add(vrPanelTempVector)
+    vrPanelTempVector.copy(vrPanelRight).multiplyScalar(vrUIPanelConfig.gui.horizontalOffset)
     guiMesh.position.copy(vrPanelBasePosition).add(vrPanelTempVector)
     guiMesh.quaternion.copy(vrCameraWorldQuat)
   }
 
   if (lutMesh) {
-    vrPanelTempVector.copy(vrPanelRight).multiplyScalar(vrUIPanelConfig.horizontalOffset)
+    vrPanelBasePosition.copy(vrCameraWorldPos)
+    vrPanelTempVector.copy(vrPanelForward).multiplyScalar(vrUIPanelConfig.lut.distance)
+    vrPanelBasePosition.add(vrPanelTempVector)
+    vrPanelTempVector.copy(vrPanelUp).multiplyScalar(vrUIPanelConfig.lut.verticalOffset)
+    vrPanelBasePosition.add(vrPanelTempVector)
+    vrPanelTempVector.copy(vrPanelRight).multiplyScalar(vrUIPanelConfig.lut.horizontalOffset)
     lutMesh.position.copy(vrPanelBasePosition).add(vrPanelTempVector)
     lutMesh.quaternion.copy(vrCameraWorldQuat)
   }
@@ -1458,6 +1471,7 @@ function registerLifecycleHooks() {
       scene,
       camera,
       controls,
+      framebufferScale: 1.5,
       mesh: caeMesh || undefined,
       testObjects: interactableObjects as THREE.Mesh[],
       caeModelCenter,
