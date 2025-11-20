@@ -17,6 +17,9 @@ const container = ref<HTMLDivElement | null>(null);
 const lutRef = ref<HTMLDivElement | null>(null);
 const shuzhiRef = ref<HTMLDivElement | null>(null);
 const guiPanelRef = ref<HTMLElement | null>(null); // GUI 面板引用
+const lutBodyRef = ref<HTMLDivElement | null>(null); // Lut 面板引用（3D VR 版本）
+const lutRef2D = ref<HTMLDivElement | null>(null); // Lut 2D 显示引用
+const shuzhiRef2D = ref<HTMLDivElement | null>(null); // 数值 2D 显示引用
 const showValuePopover = ref(false);
 const pointValue = ref(0);
 const mouseLocation = { x: 0, y: 0 };
@@ -31,7 +34,11 @@ let controls: OrbitControls;
 let vrManager: VRManager;
 let interactiveGroup: InteractiveGroup | null = null; // 交互组
 let guiMesh: HTMLMesh | null = null; // GUI HTMLMesh
+let lutMesh: HTMLMesh | null = null; // Lut HTMLMesh
 let domObserver: MutationObserver | null = null; // DOM 观察器
+
+
+
 let controller1: THREE.Group | null = null; // VR 控制器1
 let controller2: THREE.Group | null = null; // VR 控制器2
 let caeMesh: THREE.Mesh | null = null;
@@ -421,6 +428,7 @@ function initVRInteraction() {
       guiMesh.position.z = -2.0
       // guiMesh.rotation.y = Math.PI / 5
       guiMesh.scale.setScalar(2.5)
+      guiMesh.name = 'GUI_Mesh';
       interactiveGroup.add(guiMesh)
 
       // 设置 MutationObserver 监听 DOM 变化
@@ -436,6 +444,15 @@ function initVRInteraction() {
         subtree: true,
         characterData: true
       })
+    }
+    if (lutBodyRef.value && interactiveGroup) {
+      lutMesh = new HTMLMesh(lutBodyRef.value);
+      lutMesh.position.x = -3.0;
+      lutMesh.position.y = 1.5;
+      lutMesh.position.z = -2.0;
+      lutMesh.scale.setScalar(2.5);
+      lutMesh.name = 'LUT_Mesh';
+      interactiveGroup.add(lutMesh)
     }
   }, 100) // 延迟100ms确保DOM已完全渲染
 }
@@ -559,8 +576,6 @@ async function loadCAEModel() {
     // 更新裁剪平面范围（使用变换后的包围盒）
     updateClippingPlaneRanges()
 
-    const modelName = valueData[0]?.name || 'Unknown'
-
     // 设置类型节点数据和选项
     setupTypeNodeOptions()
 
@@ -626,7 +641,7 @@ async function loadBaseScene() {
     controls.target.set(center.x, center.y + 1.6, center.z - 2) // 看向前方
     controls.update()
 
-    // TODO: 如果需要，可以在 VRManager 中实现 setBoundary 方法来限制传送范围
+    // TODO: 设置边界
     // if (vrManager) {
     //   vrManager.setBoundary({
     //     minX: bbox.min.x,
@@ -817,21 +832,32 @@ function updateColors() {
 
 // 更新 LUT 颜色条显示
 function updateLutDisplay() {
-  if (!lutRef.value || !shuzhiRef.value) return
-
-  // 清除旧的显示
-  while (lutRef.value.firstChild) {
-    lutRef.value.removeChild(lutRef.value.firstChild)
+  // 更新 3D 版本（VR 模式）
+  if (lutRef.value && shuzhiRef.value) {
+    updateLutDisplayForRefs(lutRef.value, shuzhiRef.value)
   }
-  while (shuzhiRef.value.firstChild) {
-    shuzhiRef.value.removeChild(shuzhiRef.value.firstChild)
+  
+  // 更新 2D 版本（桌面模式）
+  if (lutRef2D.value && shuzhiRef2D.value) {
+    updateLutDisplayForRefs(lutRef2D.value, shuzhiRef2D.value)
+  }
+}
+
+// 实际更新 LUT 显示的函数
+function updateLutDisplayForRefs(lutContainer: HTMLDivElement, shuzhiContainer: HTMLDivElement) {
+  // 清除旧的显示
+  while (lutContainer.firstChild) {
+    lutContainer.removeChild(lutContainer.firstChild)
+  }
+  while (shuzhiContainer.firstChild) {
+    shuzhiContainer.removeChild(shuzhiContainer.firstChild)
   }
 
   // 创建 LUT 颜色条
   const lutCanvas = lut.createCanvas()
   lutCanvas.style.width = '1rem'
   lutCanvas.style.height = `${Math.min(window.innerHeight * 0.7, 415)}px`
-  lutRef.value.appendChild(lutCanvas)
+  lutContainer.appendChild(lutCanvas)
 
   // 创建数值标签
   const mrW = 100
@@ -862,7 +888,7 @@ function updateLutDisplay() {
   ctx.fillText(unit, mrW, mrH + 14)
   ctx.fillText(name, mrW, mrH + 32)
 
-  shuzhiRef.value.appendChild(canvas)
+  shuzhiContainer.appendChild(canvas)
 }
 
 // 格式化数字显示
@@ -1123,19 +1149,6 @@ const isVRMode = ref(false)
 const showGUI2D = ref(true) // 控制 2D GUI 面板显示（桌面模式下默认显示）
 const showGUI3D = ref(true) // 控制 3D GUI 面板显示（默认显示）
 
-// 切换 2D GUI 显示
-function toggle2DGUI() {
-  showGUI2D.value = !showGUI2D.value
-}
-
-// 切换 3D GUI 显示
-function toggle3DGUI() {
-  showGUI3D.value = !showGUI3D.value
-  if (guiMesh) {
-    guiMesh.visible = showGUI3D.value
-  }
-}
-
 function animationLoop() {
   const deltaTime = clock.getDelta()
   const elapsedTime = clock.getElapsedTime()
@@ -1206,6 +1219,16 @@ function animationCleanup() {
     }
     guiMesh.material.dispose()
     guiMesh.geometry.dispose()
+  }
+  if (lutMesh) {
+    if (lutMesh.material.map) {
+      const img = lutMesh.material.map.image as HTMLElement
+      if (img && img.parentElement) {
+        img.parentElement.remove()
+      }
+    }
+    lutMesh.material.dispose()
+    lutMesh.geometry.dispose()
   }
 
   // 移除事件监听
@@ -1333,8 +1356,6 @@ onMounted(async () => {
   initRenderer();
   initControls();
   initVRInteraction(); // 初始化 VR 交互
-  // initObject();
-
   // 初始化 VR 管理器
   vrManager = new VRManager({
     renderer,
@@ -1356,6 +1377,12 @@ onMounted(async () => {
           guiMesh.material.map.needsUpdate = true
         }
       }
+      if (lutMesh) {
+        lutMesh.visible = true
+        if (lutMesh.material.map) {
+          lutMesh.material.map.needsUpdate = true
+        }
+      }
     },
     onSessionEnd: () => {
       isVRMode.value = false
@@ -1366,6 +1393,12 @@ onMounted(async () => {
         guiMesh.visible = true
         if (guiMesh.material.map) {
           guiMesh.material.map.needsUpdate = true
+        }
+      }
+      if (lutMesh) {
+        lutMesh.visible = true
+        if (lutMesh.material.map) {
+          lutMesh.material.map.needsUpdate = true
         }
       }
     }
@@ -1400,16 +1433,6 @@ onUnmounted(() => {
 
 <template>
   <div ref="container" class="model-container"></div>
-
-  <!-- GUI 控制按钮组 -->
-  <div class="gui-controls" v-if="!isVRMode">
-    <button @click="toggle2DGUI" class="gui-toggle-btn">
-      {{ showGUI2D ? '隐藏 2D 面板' : '显示 2D 面板' }}
-    </button>
-    <button @click="toggle3DGUI" class="gui-toggle-btn">
-      {{ showGUI3D ? '隐藏 3D 面板' : '显示 3D 面板' }}
-    </button>
-  </div>
 
   <!-- 2D GUI 面板（桌面模式）-->
   <div v-show="showGUI2D && !isVRMode" class="gui-panel">
@@ -1460,6 +1483,14 @@ onUnmounted(() => {
       <CustomCheckbox v-model="guiParams.planeZ.plan" label="显示Z轴" />
       <CustomSlider v-model="guiParams.planeZ.scope" label="Z轴位置" :min="planeRanges.z.min" :max="planeRanges.z.max"
         :step="0.01" :decimals="2" />
+    </div>
+  </div>
+
+  <!-- 2D LUT 颜色条面板（桌面模式）-->
+  <div v-show="showGUI2D && !isVRMode" class="lut-panel-2d">
+    <div class="flex-2d">
+      <div ref="shuzhiRef2D" class="mr-1" />
+      <div ref="lutRef2D" />
     </div>
   </div>
 
@@ -1515,8 +1546,8 @@ onUnmounted(() => {
     </div>
   </div>
 
-  <!-- LUT 颜色条和数值显示 -->
-  <div class="lut-shuzhi">
+  <!-- LUT 颜色条和数值显示 (3D HTMLMesh) -->
+  <div class="lut-shuzhi" ref="lutBodyRef">
     <div class="flex">
       <div ref="shuzhiRef" class="mr-1" />
       <div ref="lutRef" />
@@ -1524,10 +1555,10 @@ onUnmounted(() => {
   </div>
 
   <!-- 鼠标悬停数值显示 -->
-  <div v-show="showValuePopover" :style="{ left: `${mouseLocation.x}px`, top: `${mouseLocation.y}px` }"
+  <!-- <div v-show="showValuePopover" :style="{ left: `${mouseLocation.x}px`, top: `${mouseLocation.y}px` }"
     class="value-popover">
     {{ formatNumber(pointValue) }}
-  </div>
+  </div> -->
 </template>
 
 <style scoped>
@@ -1599,6 +1630,24 @@ onUnmounted(() => {
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
 }
 
+/* 2D LUT 面板（桌面模式）*/
+.lut-panel-2d {
+  position: fixed;
+  top: 50px;
+  right: 20px;
+  width: 180px;
+  padding: 16px;
+  border-radius: 8px;
+  z-index: 1000;
+  cursor: pointer;
+}
+
+.flex-2d {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+
 .gui-title {
   font-size: 16px;
   font-weight: bold;
@@ -1626,15 +1675,27 @@ onUnmounted(() => {
 }
 
 .lut-shuzhi {
+  width: 180px;
+  height: 800px;
+  background: linear-gradient(135deg, rgba(30, 30, 30, 0.98) 0%, rgba(20, 20, 20, 0.95) 100%);
+  padding: 20px;
+  border-radius: 12px;
+  cursor: pointer;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  overflow-y: auto;
+  overflow-x: hidden;
   position: absolute;
-  top: 4%;
-  right: 2%;
-  pointer-events: none;
+  /* HTMLMesh 需要这个元素在文档流之外 */
+  left: -9999px;
+  top: -9999px;
+  color: #fff;
 }
+
 
 .flex {
   display: flex;
   align-items: flex-start;
+  justify-content: center;
 }
 
 .mr-1 {
