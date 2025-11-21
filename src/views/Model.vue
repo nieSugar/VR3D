@@ -8,6 +8,7 @@ import { Lut } from 'three/examples/jsm/math/Lut.js'
 import { HTMLMesh } from 'three/examples/jsm/interactive/HTMLMesh.js'
 import { InteractiveGroup } from 'three/examples/jsm/interactive/InteractiveGroup.js'
 import { XRControllerModelFactory } from 'three/examples/jsm/webxr/XRControllerModelFactory.js'
+import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 import CustomCheckbox from '../components/CustomCheckbox.vue'
 import CustomSelectV2, { type SelectOption } from '../components/CustomSelectV2.vue'
 import CustomSlider from '../components/CustomSlider.vue'
@@ -375,8 +376,8 @@ function initSceneAndLight() {
   // scene.fog = new THREE.Fog(0x1a1a2e, 5, 20) // 去掉雾效果
 
   // 添加环境光和方向光 - 室内光照
-  const ambientLight = new THREE.AmbientLight(0xffffff, 0.8) // 室内需要更亮的环境光
-  scene.add(ambientLight)
+  // const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+  // scene.add(ambientLight)
 
   // const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5)
   // directionalLight.position.set(5, 10, 5)
@@ -386,9 +387,9 @@ function initSceneAndLight() {
   // scene.add(directionalLight)
 
   // // 添加点光源模拟室内灯光
-  const pointLight = new THREE.PointLight(0xffffff, 0.4)
-  pointLight.position.set(0, 5, 0)
-  scene.add(pointLight)
+  // const pointLight = new THREE.PointLight(0xffffff, 0.4)
+  // pointLight.position.set(0, 5, 0)
+  // scene.add(pointLight)
 
   // 初始化裁剪平面
   planes = [
@@ -608,6 +609,7 @@ function resetVRUIPanelTransforms() {
 
 async function preloadSceneAssets() {
   await loadBaseScene();
+  await loadHDR();
   loadCAEModel();
 }
 
@@ -621,8 +623,8 @@ async function loadCAEModel() {
 
     // 加载节点数据和数值数据
     const [nodeResponse, valueResponse] = await Promise.all([
-      fetch('/src/assets/objects/470/FNode.json').then(r => r.json()),
-      fetch('/src/assets/objects/470/FValue.json').then(r => r.json())
+      fetch('/src/assets/objects/re100Json/FNode.json').then(r => r.json()),
+      fetch('/src/assets/objects/re100Json/FValue.json').then(r => r.json())
     ])
 
     const nodeData = nodeResponse;
@@ -648,8 +650,8 @@ async function loadCAEModel() {
     geometry.computeBoundingBox()
     const bbox = geometry.boundingBox!
 
-    // Y 轴偏移，让模型底部在 y=0
-    const offsetY = -bbox.min.y
+    // Y 轴偏移，让模型底部在 y在0 的基础上加
+    const offsetY = -bbox.min.y + 1
     const positionAttr = geometry.attributes.position
     if (positionAttr) {
       const positions = positionAttr.array as Float32Array
@@ -720,6 +722,16 @@ async function loadCAEModel() {
   }
 }
 
+async function loadHDR() {
+  const loader = new HDRLoader()
+  const hdr = await loader.loadAsync('/src/assets/hdr/workshop2.hdr')
+  hdr.mapping = THREE.EquirectangularReflectionMapping;
+  scene.environment = hdr;
+  scene.background = hdr;
+  scene.backgroundBlurriness = 0.2;
+}
+
+
 // 加载基础场景 GLB 模型
 async function loadBaseScene() {
   try {
@@ -727,7 +739,8 @@ async function loadBaseScene() {
     // 加载 tjdx.glb 模型
     const gltf = await loader.loadAsync('/src/assets/models/tjdx.glb')
 
-    baseSceneModel = gltf.scene
+    baseSceneModel = gltf.scene;
+    baseSceneModel.name = 'Base-Scene';
 
     // 调整模型大小和位置（根据需要）
     baseSceneModel.scale.set(2, 2, 2)
@@ -866,7 +879,7 @@ function updateFrameOptions() {
   }
 }
 
-// 更新裁剪平面范围 - 参考 oldModel.vue 的方式
+// 更新裁剪平面范围 
 function updateClippingPlaneRanges() {
   if (!caeMesh) return
 
@@ -1666,7 +1679,7 @@ function registerLifecycleHooks() {
 /* HTMLMesh 3D GUI 面板样式 */
 .gui-panel-3d {
   width: 350px;
-  height: 680px;
+  height: 700px;
   background: linear-gradient(135deg, rgba(30, 30, 30, 0.98) 0%, rgba(20, 20, 20, 0.95) 100%);
   padding: 20px;
   border-radius: 12px;
