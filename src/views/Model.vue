@@ -79,6 +79,7 @@ let domObserver: MutationObserver | null = null // DOM 观察器
 let controller1: THREE.Group | null = null // VR 控制器1
 let controller2: THREE.Group | null = null // VR 控制器2
 let caeMesh: THREE.Mesh | null = null
+let caePivot: THREE.Group | null = null
 let caeModelCenter = new THREE.Vector3(0, 0, 0) // CAE 模型中心位置
 let caeViewDistance = 5 // 观看 CAE 模型的合适距离
 let baseSceneModel: THREE.Group | null = null // 基础场景模型
@@ -180,6 +181,10 @@ const colorMapOptions: SelectOption[] = [
 // 数据类型选项（动态生成）
 const typeNodeOptions = ref<SelectOption[]>([]);
 
+const modelNameOptions = ['re10', 're100', 're10000'].map(s => ({ value: `${s}Json`, label: s }));
+console.log(modelNameOptions, 'modelNameOptions');
+
+
 // 时间帧选项（动态生成）
 const frameOptions = ref<SelectOption[]>([]);
 
@@ -208,7 +213,6 @@ const showGUI3D = ref(true); // 控制 3D GUI 面板显示（默认显示）
 
 // 运行时辅助状态
 const originalMaterials = new Map<THREE.Object3D, THREE.Material>();
-let grabbedObject: THREE.Object3D | null = null; // 当前被抓取的物体
 
 // GUI 参数
 const guiParams = reactive({
@@ -228,15 +232,11 @@ const guiParams = reactive({
     autoRotate: false,
     rotationSpeed: 1.0,
   },
-  // 测试物体控制
-  testObjects: {
-    visible: true,
-    animate: true,
-  },
   // 裁剪平面
   planeX: { scope: 0, plan: false },
   planeY: { scope: 0, plan: false },
   planeZ: { scope: 0, plan: false },
+  modelName: 're10Json',
   // 时间帧控制
   currentFrame: 0,
   frames: [] as string[],
@@ -300,6 +300,14 @@ function setupCaeModelWatchers() {
       updateColors()
     }
   })
+
+  watch(() => guiParams.modelName, () => {
+    if (caeMesh) {
+      scene.remove(caeMesh);
+      caeMesh = null;
+      loadCAEModel();
+    }
+  });
 }
 
 function setupSceneWatchers() {
@@ -610,7 +618,7 @@ function resetVRUIPanelTransforms() {
 async function preloadSceneAssets() {
   await loadBaseScene();
   await loadHDR();
-  loadCAEModel();
+  await loadCAEModel();
 }
 
 // -----------------------------------------------------------------------------
@@ -623,8 +631,8 @@ async function loadCAEModel() {
 
     // 加载节点数据和数值数据
     const [nodeResponse, valueResponse] = await Promise.all([
-      fetch('/src/assets/objects/re100Json/FNode.json').then(r => r.json()),
-      fetch('/src/assets/objects/re100Json/FValue.json').then(r => r.json())
+      fetch(`/src/assets/objects/${guiParams.modelName}/FNode.json`).then(r => r.json()),
+      fetch(`/src/assets/objects/${guiParams.modelName}/FValue.json`).then(r => r.json())
     ])
 
     const nodeData = nodeResponse;
@@ -698,6 +706,7 @@ async function loadCAEModel() {
 
     scene.add(caeMesh)
     interactableObjects.push(caeMesh)
+    alignCaeModelToBaseScene()
 
     // 计算最大最小值用于颜色映射
     const pressureArray = data[0]?.val || []
@@ -724,11 +733,25 @@ async function loadCAEModel() {
 
 async function loadHDR() {
   const loader = new HDRLoader()
-  const hdr = await loader.loadAsync('/src/assets/hdr/workshop2.hdr')
-  hdr.mapping = THREE.EquirectangularReflectionMapping;
-  scene.environment = hdr;
-  scene.background = hdr;
-  scene.backgroundBlurriness = 0.2;
+  const environmentHdr = await loader.loadAsync('/src/assets/hdr/empty_play_room_2k.hdr')
+  environmentHdr.mapping = THREE.EquirectangularReflectionMapping;
+  scene.environment = environmentHdr;
+  scene.environmentIntensity = 0.5;
+  scene.environmentRotation.y = 60 * THREE.MathUtils.DEG2RAD;
+  scene.backgroundBlurriness = 0;
+
+  const backGroundHdr = await loader.loadAsync('/src/assets/hdr/bambanani_sunset_2k.hdr')
+  environmentHdr.mapping = THREE.EquirectangularReflectionMapping;
+  scene.background = backGroundHdr;
+
+  scene.backgroundBlurriness = 0;
+  scene.backgroundIntensity = 0.5;
+  scene.backgroundRotation.y = 60 * THREE.MathUtils.DEG2RAD;
+
+  // if ( useBackgroundAsEnvironment ) {
+
+  // 	scene.environment = backgroundEquirectangularTexture;
+
 }
 
 
@@ -803,6 +826,50 @@ async function loadBaseScene() {
   } catch (error) {
     console.error('加载基础场景失败:', error)
   }
+}
+
+// 将 CAE 模型中心对齐到基础场景中心，并按场景大小缩放
+function alignCaeModelToBaseScene() {
+  if (!caeMesh) return
+
+  const caeBox = new THREE.Box3().setFromObject(caeMesh)
+  // 固定 1x1x1 的参考尺寸
+  const targetSize = new THREE.Vector3(1, 1, 1)
+  const caeSize = caeBox.getSize(new THREE.Vector3())
+
+  // 留出一定余量，取最小轴的比例，避免撑满整个场景
+  const safeCaeSize = new THREE.Vector3(
+    Math.max(caeSize.x, 0.001),
+    Math.max(caeSize.y, 0.001),
+    Math.max(caeSize.z, 0.001),
+  )
+  const scaleX = targetSize.x / safeCaeSize.x
+  const scaleY = targetSize.y / safeCaeSize.y
+  const scaleZ = targetSize.z / safeCaeSize.z
+  const fitScale = Math.min(scaleX, scaleY, scaleZ)
+  if (Number.isFinite(fitScale) && fitScale > 0) {
+    caeMesh.scale.setScalar(fitScale);
+    caeMesh.updateMatrixWorld(true)
+  }
+
+  // 缩放后重新对齐中心点
+  caeMesh.updateMatrixWorld(true)
+  const scaledBox = new THREE.Box3().setFromObject(caeMesh)
+  const scaledCenter = scaledBox.getCenter(new THREE.Vector3())
+  const targetCenter = new THREE.Vector3(scaledCenter.x, scaledCenter.y + 0.5, scaledCenter.z)
+  const offset = targetCenter.clone().sub(scaledCenter)
+  caeMesh.position.add(offset)
+  caeMesh.updateMatrixWorld(true)
+
+  // 以目标中心为枢轴，后续旋转围绕该中心
+  if (!caePivot) {
+    caePivot = new THREE.Group()
+    scene.add(caePivot)
+  }
+  caePivot.position.copy(targetCenter)
+
+  // 记录中心点供后续使用
+  caeModelCenter.copy(targetCenter)
 }
 
 // -----------------------------------------------------------------------------
@@ -1203,7 +1270,7 @@ function playAnimation() {
 
       animationFrameId = window.setTimeout(() => {
         requestAnimationFrame(animate);
-      }, 100); // 每100ms切换一帧
+      }, 500); // 每100ms切换一帧
     }
   };
 
@@ -1271,9 +1338,6 @@ function handleResize() {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 }
 function animationLoop() {
-  const deltaTime = clock.getDelta()
-  const elapsedTime = clock.getElapsedTime()
-
   // 更新 OrbitControls
   if (controls.enabled) {
     controls.update()
@@ -1293,25 +1357,9 @@ function animationLoop() {
     }
   }
 
-  // 让物体自动旋转（除非被抓取或是 CAE 模型）
-  if (guiParams.testObjects.animate) {
-    interactableObjects.forEach((obj, index) => {
-      // 获取VR管理器中的被抓取物体状态
-      const vrGrabbedObject = vrManager ? vrManager.getGrabbedObject() : null
-      if (obj !== vrGrabbedObject && obj !== grabbedObject && obj !== caeMesh) {
-        obj.rotation.y += deltaTime * 0.5
-        obj.rotation.x += deltaTime * 0.2
-        // 添加上下浮动效果
-        obj.position.y = 0.3 + Math.sin(elapsedTime + index * 1.2) * 0.1
-      }
-    })
-  }
-
   // 更新 VR 状态
   if (vrManager) {
     vrManager.update()
-    // 同步VR管理器中的抓取状态
-    grabbedObject = vrManager.getGrabbedObject()
   }
 
   if (renderer && renderer.xr.isPresenting) {
@@ -1565,6 +1613,7 @@ function registerLifecycleHooks() {
         <div class="gui-section">
           <CustomCheckbox v-model="guiParams.caeModel.visible" label="显示" />
           <CustomCheckbox v-model="guiParams.caeModel.wireframe" label="线框模式" />
+          <CustomSelectV2 v-model="guiParams.modelName" label="模型" :options="modelNameOptions" />
           <CustomSlider v-model="guiParams.caeModel.opacity" label="透明度" :min="0" :max="1" :step="0.1" :decimals="1" />
           <CustomSlider v-model="guiParams.caeModel.metalness" label="金属度" :min="0" :max="1" :step="0.1"
             :decimals="1" />
@@ -1610,6 +1659,7 @@ function registerLifecycleHooks() {
         <!-- CAE 模型控制 -->
         <CustomCheckbox v-model="guiParams.caeModel.visible" label="显示" />
         <CustomCheckbox v-model="guiParams.caeModel.wireframe" label="线框模式" />
+        <CustomSelectV2 v-model="guiParams.modelName" label="模型" :options="modelNameOptions" />
         <CustomSlider v-model="guiParams.caeModel.opacity" label="透明度" :min="0" :max="1" :step="0.1" :decimals="1" />
         <CustomSlider v-model="guiParams.caeModel.metalness" label="金属度" :min="0" :max="1" :step="0.1" :decimals="1" />
         <CustomSlider v-model="guiParams.caeModel.roughness" label="粗糙度" :min="0" :max="1" :step="0.1" :decimals="1" />

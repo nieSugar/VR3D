@@ -277,8 +277,10 @@ onUnmounted(() => {
 .custom-select {
   display: inline-flex;
   flex-direction: column;
-  width: 120px;
+  width: 160px;
   gap: 4px;
+  overflow: hidden;
+  position: relative;
 }
 
 .current-value {
@@ -292,6 +294,9 @@ onUnmounted(() => {
   user-select: none;
   position: relative;
   transition: border-color 0.2s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .arrow-container {
