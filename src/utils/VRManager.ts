@@ -44,6 +44,7 @@ interface VRManagerConfig {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   framebufferScale?: number;
+  playerHeight?: number;
   controls?: OrbitControls;
   gui?: GUI;
   mesh?: THREE.Mesh;
@@ -68,6 +69,7 @@ export class VRManager {
   private testObjects?: THREE.Mesh[];
   private caeModelCenter: THREE.Vector3;
   private caeViewDistance: number;
+  private playerHeight: number;
 
   // VR相关变量
   private vrPlayerRig: THREE.Group;
@@ -109,6 +111,7 @@ export class VRManager {
     this.testObjects = config.testObjects;
     this.caeModelCenter = config.caeModelCenter || new THREE.Vector3(0, 0, 0);
     this.caeViewDistance = config.caeViewDistance || 5;
+    this.playerHeight = config.playerHeight ?? 1.6;
     this.onSessionStart = config.onSessionStart;
     this.onSessionEnd = config.onSessionEnd;
 
@@ -117,7 +120,7 @@ export class VRManager {
     // 初始化VR Player Rig
     this.vrPlayerRig = new THREE.Group();
     this.vrPlayerRig.name = 'VRPlayerRig';
-    this.vrPlayerRig.position.set(3, 1.6, 3); // 初始位置稍微远一点，面向场景中心
+    this.vrPlayerRig.position.set(3, this.getMinHeight(true), 3); // 初始位置稍微远一点，面向场景中心
     this.scene.add(this.vrPlayerRig);
 
     // 启用VR
@@ -241,6 +244,11 @@ export class VRManager {
       parent.add(controller);
       parent.add(controllerGrip);
     });
+  }
+
+  // 获取当前最低高度（VR 模式下使用玩家高度）
+  private getMinHeight(isVR: boolean = this.renderer.xr.isPresenting): number {
+    return isVR ? Math.max(this.groundLevel, this.playerHeight) : this.groundLevel;
   }
 
   // VR控制器事件处理
@@ -367,7 +375,8 @@ export class VRManager {
 
   private handleJump(): void {
     const target = this.camera.parent || this.camera;
-    if (target.position.y <= this.groundLevel) {
+    const minHeight = this.getMinHeight();
+    if (target.position.y <= minHeight) {
       this.verticalVelocity = this.jumpStrength;
       this.log('跳跃!');
     }
@@ -413,11 +422,13 @@ export class VRManager {
         // 让玩家站在CAE模型前合适的距离
         const viewPos = this.caeModelCenter.clone();
         viewPos.z += this.caeViewDistance;
-        viewPos.y = Math.max(viewPos.y, this.groundLevel);
+        const minVRHeight = this.getMinHeight(true);
+        viewPos.y = Math.max(viewPos.y, minVRHeight);
         this.vrPlayerRig.position.copy(viewPos);
         this.log(`VR 玩家位置: ${viewPos.x.toFixed(1)}, ${viewPos.y.toFixed(1)}, ${viewPos.z.toFixed(1)}`);
       } else {
-        this.vrPlayerRig.position.copy(worldPos);
+        const minVRHeight = this.getMinHeight(true);
+        this.vrPlayerRig.position.set(worldPos.x, Math.max(worldPos.y, minVRHeight), worldPos.z);
       }
       
       this.vrPlayerRig.add(this.camera);
@@ -474,12 +485,13 @@ export class VRManager {
   public update(): void {
     // 应用重力和垂直速度
     const target = this.camera.parent || this.camera;
+    const minHeight = this.getMinHeight();
     this.verticalVelocity += this.gravity;
     target.position.y += this.verticalVelocity;
 
     // 地面碰撞检测
-    if (target.position.y < this.groundLevel) {
-      target.position.y = this.groundLevel;
+    if (target.position.y < minHeight) {
+      target.position.y = minHeight;
       this.verticalVelocity = 0;
     }
 
@@ -556,6 +568,16 @@ export class VRManager {
   public setCaeModelInfo(center: THREE.Vector3, distance: number): void {
     this.caeModelCenter = center;
     this.caeViewDistance = distance;
+  }
+
+  // 设置 VR 玩家基准高度
+  public setPlayerHeight(height: number): void {
+    this.playerHeight = Math.max(height, 0);
+    if (this.renderer.xr.isPresenting) {
+      const target = this.camera.parent || this.camera;
+      const minHeight = this.getMinHeight(true);
+      target.position.y = Math.max(target.position.y, minHeight);
+    }
   }
 
   // 获取当前被抓取的对象

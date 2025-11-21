@@ -184,7 +184,7 @@ const colorMapOptions: SelectOption[] = [
 // 数据类型选项（动态生成）
 const typeNodeOptions = ref<SelectOption[]>([]);
 
-const modelNameOptions = ['re10', 're100', 're10000'].map(s => ({ value: `${s}Json`, label: s }));
+const modelNameOptions = ['comsol', 're10', 're100', 're10000'].map(s => ({ value: `${s}Json`, label: s }));
 console.log(modelNameOptions, 'modelNameOptions');
 
 
@@ -247,7 +247,6 @@ const guiParams = reactive({
   typenode: '',
   frame: '',
   animate: false,
-  segmentation: false,
   nodes: {} as Record<string, Array<Task>>,
   nownode: [] as Array<Task>,
 });
@@ -294,14 +293,6 @@ function setupCaeModelWatchers() {
 
   watch(() => guiParams.caeModel.colorMap, () => {
     updateColors()
-  })
-
-  watch(() => guiParams.segmentation, (value: boolean) => {
-    if (caeMesh && caeMesh.material) {
-      (caeMesh.material as any).ribbon = value
-      guiParams.caeModel.colorMap = 'grayscale'
-      updateColors()
-    }
   })
 
   watch(() => guiParams.modelName, () => {
@@ -468,13 +459,19 @@ function initCamera() {
 
 function initRenderer() {
   if (!container?.value) return
-  renderer = new THREE.WebGLRenderer({ antialias: true })
+  renderer = new THREE.WebGLRenderer({
+    antialias: true,
+    logarithmicDepthBuffer: true
+  })
   renderer.setSize(container.value.clientWidth, container.value.clientHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.localClippingEnabled = true; // 启用本地裁剪
   renderer.autoClear = false; // 用于 stencil buffer
+
+  renderer.toneMapping = THREE.NeutralToneMapping;
+  renderer.toneMappingExposure = 1;
   container.value.appendChild(renderer.domElement);
 
 }
@@ -735,26 +732,30 @@ async function loadCAEModel() {
 }
 
 async function loadHDR() {
-  const loader = new HDRLoader()
-  const environmentHdr = await loader.loadAsync('/src/assets/hdr/empty_play_room_2k.hdr')
-  environmentHdr.mapping = THREE.EquirectangularReflectionMapping;
-  scene.environment = environmentHdr;
+
+  const loader = new HDRLoader();
+  const env = await loader.loadAsync(new URL('../assets/hdr/empty_play_room_2k.hdr', import.meta.url).href);
+  const bg = await loader.loadAsync(new URL('../assets/hdr/bambanani_sunset_2k.hdr', import.meta.url).href);
+
+  env.mapping = THREE.EquirectangularReflectionMapping;
+  bg.mapping = THREE.EquirectangularReflectionMapping;
+
+  // 预滤波后再用作环境
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  const envRT = pmrem.fromEquirectangular(env);
+  scene.environment = envRT.texture;
+  scene.background = bg;
+  pmrem.dispose();
+  env.dispose();
+
   scene.environmentIntensity = 0.5;
   scene.environmentRotation.y = 60 * THREE.MathUtils.DEG2RAD;
   scene.backgroundBlurriness = 0;
 
-  const backGroundHdr = await loader.loadAsync('/src/assets/hdr/bambanani_sunset_2k.hdr')
-  environmentHdr.mapping = THREE.EquirectangularReflectionMapping;
-  scene.background = backGroundHdr;
 
   scene.backgroundBlurriness = 0;
   scene.backgroundIntensity = 0.5;
   scene.backgroundRotation.y = 60 * THREE.MathUtils.DEG2RAD;
-
-  // if ( useBackgroundAsEnvironment ) {
-
-  // 	scene.environment = backgroundEquirectangularTexture;
-
 }
 
 
@@ -837,7 +838,7 @@ function alignCaeModelToBaseScene() {
 
   const caeBox = new THREE.Box3().setFromObject(caeMesh)
   // 固定 1x1x1 的参考尺寸
-  const targetSize = new THREE.Vector3(1, 1, 1)
+  const targetSize = new THREE.Vector3(4, 4, 4)
   const caeSize = caeBox.getSize(new THREE.Vector3())
 
   // 留出一定余量，取最小轴的比例，避免撑满整个场景
@@ -859,7 +860,7 @@ function alignCaeModelToBaseScene() {
   caeMesh.updateMatrixWorld(true)
   const scaledBox = new THREE.Box3().setFromObject(caeMesh)
   const scaledCenter = scaledBox.getCenter(new THREE.Vector3())
-  const targetCenter = new THREE.Vector3(scaledCenter.x, scaledCenter.y + 0.5, scaledCenter.z)
+  const targetCenter = new THREE.Vector3(scaledCenter.x - 1.5, scaledCenter.y + 1.5, scaledCenter.z)
   const offset = targetCenter.clone().sub(scaledCenter)
   caeMesh.position.add(offset)
   caeMesh.updateMatrixWorld(true)
@@ -1543,6 +1544,7 @@ function registerLifecycleHooks() {
       camera,
       controls,
       framebufferScale: 1.5,
+      playerHeight: 2,
       mesh: caeMesh || undefined,
       testObjects: interactableObjects as THREE.Mesh[],
       caeModelCenter,
@@ -1635,7 +1637,6 @@ function registerLifecycleHooks() {
 
           <CustomSelectV2 v-model="guiParams.caeModel.colorMap" label="颜色映射" :options="colorMapOptions" />
           <CustomCheckbox v-model="guiParams.animate" label="动画播放" />
-          <CustomCheckbox v-model="guiParams.segmentation" label="分割模式" />
 
           <CustomCheckbox v-model="guiParams.scene.autoRotate" label="自动旋转" />
           <CustomSlider v-model="guiParams.scene.rotationSpeed" label="旋转速度" :min="0.1" :max="5" :step="0.1"
@@ -1677,7 +1678,6 @@ function registerLifecycleHooks() {
         <CustomSelectV2 v-if="frameOptions.length > 0" v-model="guiParams.frame" label="时间帧" :options="frameOptions" />
         <CustomSelectV2 v-model="guiParams.caeModel.colorMap" label="颜色映射" :options="colorMapOptions" />
         <CustomCheckbox v-model="guiParams.animate" label="动画播放" />
-        <CustomCheckbox v-model="guiParams.segmentation" label="分割模式" />
 
         <CustomCheckbox v-model="guiParams.scene.autoRotate" label="自动旋转" />
         <CustomSlider v-model="guiParams.scene.rotationSpeed" label="旋转速度" :min="0.1" :max="5" :step="0.1"
