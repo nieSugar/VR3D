@@ -95,7 +95,10 @@ let minval = 0
 const raycaster = new THREE.Raycaster()
 const mouse = new THREE.Vector2()
 let setValueTimeout: number
-let animationFrameId: number | null = null
+const animationStepSeconds = 0.5 // 数据帧切换间隔（秒）
+let animationElapsed = 0
+let animationFrameIndex = 0
+let isDataAnimationPlaying = false
 
 // -----------------------------------------------------------------------------
 // 颜色映射定义
@@ -1254,35 +1257,27 @@ function updateTimes() {
 
 // 动画播放
 function playAnimation() {
-  if (!guiParams.nownode || guiParams.nownode.length === 0) return;
+  if (!guiParams.nownode || guiParams.nownode.length === 0) {
+    isDataAnimationPlaying = false;
+    return;
+  }
 
-  let currentFrameIndex = 0;
+  isDataAnimationPlaying = true;
+  animationElapsed = 0;
+  const currentIndex = guiParams.nownode.findIndex(item => item.key === guiParams.frame);
+  animationFrameIndex = currentIndex >= 0 ? currentIndex : 0;
 
-  const animate = () => {
-    if (!guiParams.animate) return;
-
-    const frameData = guiParams.nownode[currentFrameIndex];
-    if (frameData && frameData.key) {
-      guiParams.frame = frameData.key;
-      updateTimes();
-
-      currentFrameIndex = (currentFrameIndex + 1) % guiParams.nownode.length;
-
-      animationFrameId = window.setTimeout(() => {
-        requestAnimationFrame(animate);
-      }, 500); // 每100ms切换一帧
-    }
-  };
-
-  animate();
+  const frameData = guiParams.nownode[animationFrameIndex];
+  if (frameData?.key) {
+    guiParams.frame = frameData.key;
+    updateTimes();
+  }
 }
 
 // 停止动画
 function stopAnimation() {
-  if (animationFrameId !== null) {
-    clearTimeout(animationFrameId);
-    animationFrameId = null;
-  }
+  isDataAnimationPlaying = false;
+  animationElapsed = 0;
 }
 
 // 鼠标悬停显示数值
@@ -1338,6 +1333,21 @@ function handleResize() {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 }
 function animationLoop() {
+  const delta = clock.getDelta();
+
+  if (isDataAnimationPlaying && guiParams.animate && guiParams.nownode.length > 0) {
+    animationElapsed += delta;
+    if (animationElapsed >= animationStepSeconds) {
+      animationElapsed = 0;
+      animationFrameIndex = (animationFrameIndex + 1) % guiParams.nownode.length;
+      const frameData = guiParams.nownode[animationFrameIndex];
+      if (frameData?.key) {
+        guiParams.frame = frameData.key;
+        updateTimes();
+      }
+    }
+  }
+
   // 更新 OrbitControls
   if (controls.enabled) {
     controls.update()
