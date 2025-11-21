@@ -173,7 +173,6 @@ Object.entries(ColorMapKeywords).forEach(([name, colormap]) => {
 // 选项列表
 const colorMapOptions: SelectOption[] = [
   { value: 'water', label: '水色' },
-  { value: 'water2', label: '水色2' },
   { value: 'rainbow', label: '彩虹' },
   { value: 'cooltowarm', label: '冷暖' },
   { value: 'blackbody', label: '黑体' },
@@ -227,7 +226,7 @@ const guiParams = reactive({
     color: '#4ecdc4',
     metalness: 0.3,
     roughness: 0.5,
-    colorMap: 'water',
+    colorMap: 'rainbow',
   },
   // 场景控制
   scene: {
