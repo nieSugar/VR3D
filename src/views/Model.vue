@@ -53,28 +53,6 @@ let vrManager: VRManager
 let interactiveGroup: InteractiveGroup | null = null // 交互组
 let guiMesh: HTMLMesh | null = null // GUI HTMLMesh
 let lutMesh: HTMLMesh | null = null // Lut HTMLMesh
-const guiPanelDefaultPosition = new THREE.Vector3(-1.0, 1.5, -2.0)
-const lutPanelDefaultPosition = new THREE.Vector3(-3.0, 1.5, -2.0)
-// VR UI 面板相对摄像头的偏移配置
-const vrUIPanelConfig = {
-  gui: {
-    distance: 2.5,           // GUI 面板距摄像头前方的距离
-    horizontalOffset: -0.8,  // GUI 水平偏移（负数在左，正数在右）
-    verticalOffset: 0        // GUI 垂直偏移（正上负下）
-  },
-  lut: {
-    distance: 2.5,           // LUT 面板距摄像头前方的距离
-    horizontalOffset: 1.3,   // LUT 水平偏移（负数在左，正数在右）
-    verticalOffset: -0.5     // LUT 垂直偏移（正上负下）
-  }
-}
-const vrCameraWorldPos = new THREE.Vector3()
-const vrCameraWorldQuat = new THREE.Quaternion()
-const vrPanelForward = new THREE.Vector3()
-const vrPanelRight = new THREE.Vector3()
-const vrPanelUp = new THREE.Vector3()
-const vrPanelBasePosition = new THREE.Vector3()
-const vrPanelTempVector = new THREE.Vector3()
 let domObserver: MutationObserver | null = null // DOM 观察器
 let controller1: THREE.Group | null = null // VR 控制器1
 let controller2: THREE.Group | null = null // VR 控制器2
@@ -530,7 +508,8 @@ function initVRInteraction() {
   setTimeout(() => {
     if (guiPanelRef.value && interactiveGroup) {
       guiMesh = new HTMLMesh(guiPanelRef.value)
-      guiMesh.position.copy(guiPanelDefaultPosition)
+      // 临时位置，等模型加载后会更新为相对于模型的位置
+      guiMesh.position.set(-1.0, 1.5, -2.0)
       guiMesh.quaternion.identity()
       guiMesh.scale.setScalar(2.5)
       guiMesh.name = 'GUI_Mesh';
@@ -552,7 +531,8 @@ function initVRInteraction() {
     }
     if (lutBodyRef.value && interactiveGroup) {
       lutMesh = new HTMLMesh(lutBodyRef.value);
-      lutMesh.position.copy(lutPanelDefaultPosition);
+      // 临时位置，等模型加载后会更新为相对于模型的位置
+      lutMesh.position.set(-3.0, 1.5, -2.0);
       lutMesh.quaternion.identity();
       lutMesh.scale.setScalar(3);
       lutMesh.name = 'LUT_Mesh';
@@ -569,48 +549,28 @@ async function initRenderPipeline() {
   initVRInteraction();
 }
 
-// 按当前摄像头姿态计算 VR 中 GUI / LUT 面板的位置与朝向
+// 更新面板位置，使其相对于 caeModel 定位
 function updateVRUIPanels() {
-  if (!camera || !renderer || !renderer.xr.isPresenting) return
+  if (!caePivot || !caeModelCenter) return
   if (!guiMesh && !lutMesh) return
 
-  camera.getWorldPosition(vrCameraWorldPos)
-  camera.getWorldQuaternion(vrCameraWorldQuat)
-
-  vrPanelForward.set(0, 0, -1).applyQuaternion(vrCameraWorldQuat).normalize()
-  vrPanelRight.set(1, 0, 0).applyQuaternion(vrCameraWorldQuat).normalize()
-  vrPanelUp.set(0, 1, 0).applyQuaternion(vrCameraWorldQuat).normalize()
-
+  // GUI面板固定在caemodel左侧
   if (guiMesh) {
-    vrPanelBasePosition.copy(vrCameraWorldPos)
-    vrPanelTempVector.copy(vrPanelForward).multiplyScalar(vrUIPanelConfig.gui.distance)
-    vrPanelBasePosition.add(vrPanelTempVector)
-    vrPanelTempVector.copy(vrPanelUp).multiplyScalar(vrUIPanelConfig.gui.verticalOffset)
-    vrPanelBasePosition.add(vrPanelTempVector)
-    vrPanelTempVector.copy(vrPanelRight).multiplyScalar(vrUIPanelConfig.gui.horizontalOffset)
-    guiMesh.position.copy(vrPanelBasePosition).add(vrPanelTempVector)
-    guiMesh.quaternion.copy(vrCameraWorldQuat)
-  }
-
-  if (lutMesh) {
-    vrPanelBasePosition.copy(vrCameraWorldPos)
-    vrPanelTempVector.copy(vrPanelForward).multiplyScalar(vrUIPanelConfig.lut.distance)
-    vrPanelBasePosition.add(vrPanelTempVector)
-    vrPanelTempVector.copy(vrPanelUp).multiplyScalar(vrUIPanelConfig.lut.verticalOffset)
-    vrPanelBasePosition.add(vrPanelTempVector)
-    vrPanelTempVector.copy(vrPanelRight).multiplyScalar(vrUIPanelConfig.lut.horizontalOffset)
-    lutMesh.position.copy(vrPanelBasePosition).add(vrPanelTempVector)
-    lutMesh.quaternion.copy(vrCameraWorldQuat)
-  }
-}
-
-function resetVRUIPanelTransforms() {
-  if (guiMesh) {
-    guiMesh.position.copy(guiPanelDefaultPosition)
+    guiMesh.position.set(
+      caeModelCenter.x - 3,  // 左侧
+      caeModelCenter.y,       // 与模型同高
+      caeModelCenter.z
+    )
     guiMesh.quaternion.identity()
   }
+
+  // LUT面板固定在caemodel右侧
   if (lutMesh) {
-    lutMesh.position.copy(lutPanelDefaultPosition)
+    lutMesh.position.set(
+      caeModelCenter.x + 3,  // 右侧
+      caeModelCenter.y - 0.5,
+      caeModelCenter.z
+    )
     lutMesh.quaternion.identity()
   }
 }
@@ -730,6 +690,9 @@ async function loadCAEModel() {
 
     // 设置类型节点数据和选项
     setupTypeNodeOptions()
+
+    // 更新面板位置，使其相对于模型定位
+    updateVRUIPanels()
 
   } catch (error) {
     console.error('加载 CAE 模型失败:', error)
@@ -1418,9 +1381,6 @@ function animationLoop() {
     vrManager.update()
   }
 
-  if (renderer && renderer.xr.isPresenting) {
-    updateVRUIPanels()
-  }
 
   // 渲染场景
   renderer.clear();
@@ -1568,14 +1528,14 @@ function getClipFrame(type: 'x' | 'y' | 'z') {
     // 将世界坐标转换回原始模型的局部坐标（未经变换的坐标）
     // 1. 减去 pivot 的世界位置
     worldPoint.sub(caePivot.position)
-    
+
     // 2. 减去 caeMesh 在 pivot 中的局部偏移
     worldPoint.sub(caeMesh.position)
-    
+
     // 3. 除以缩放比例
     const scale = caeMesh.scale.x // 使用 uniform scale
     worldPoint.divideScalar(scale)
-    
+
     // 4. 减去 Y 轴偏移量，转换回服务器数据的原始坐标系
     worldPoint.y -= modelOffsetY
 
@@ -1637,17 +1597,17 @@ function getClipFrame(type: 'x' | 'y' | 'z') {
       meshClip.name = 'clipMesh'
       meshClip.renderOrder = 0
 
-      // 自定义着色器，根据顶点颜色调整透明度
-      ;(meshClip.material as THREE.MeshStandardMaterial).onBeforeCompile = shader => {
-        shader.fragmentShader = shader.fragmentShader.replace(
-          'gl_FragColor = vec4( outgoingLight, diffuseColor.a );',
-          `
+        // 自定义着色器，根据顶点颜色调整透明度
+        ; (meshClip.material as THREE.MeshStandardMaterial).onBeforeCompile = shader => {
+          shader.fragmentShader = shader.fragmentShader.replace(
+            'gl_FragColor = vec4( outgoingLight, diffuseColor.a );',
+            `
             float oldcolor=smoothstep(0.,1.,vColor.r);
             diffuseColor.a=max(.2,oldcolor);
             gl_FragColor = vec4( outgoingLight, diffuseColor.a );
           `
-        )
-      }
+          )
+        }
 
       // 填充切面几何体数据
       const clipJsonStr = {
@@ -1700,7 +1660,7 @@ function getClipFrame(type: 'x' | 'y' | 'z') {
       } else {
         scene.add(meshClip)
       }
-      
+
       updateColors()
 
       console.log('切面网格创建成功，已添加到', caePivot ? 'caePivot' : 'scene')
@@ -1803,7 +1763,6 @@ function registerLifecycleHooks() {
             lutMesh.material.map.needsUpdate = true
           }
         }
-        updateVRUIPanels()
       },
       onSessionEnd: () => {
         isVRMode.value = false
@@ -1822,7 +1781,6 @@ function registerLifecycleHooks() {
             lutMesh.material.map.needsUpdate = true
           }
         }
-        resetVRUIPanelTransforms()
       }
     })
     vrManager.init(container.value)
