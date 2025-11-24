@@ -9,7 +9,6 @@ import { InteractiveGroup } from 'three/examples/jsm/interactive/InteractiveGrou
 import { XRControllerModelFactory } from 'three/examples/jsm/webxr/XRControllerModelFactory.js'
 import { GUI } from 'lil-gui'
 import Stats from 'three/examples/jsm/libs/stats.module.js'
-import hdrTexture from '../assets/moonless_golf_1k.hdr'
 import { createMaterialSelectUI } from '../utils/htmlMeshUtils'
 import CustomCheckbox from '../components/CustomCheckbox.vue'
 import CustomSelect, { type SelectOption } from '../components/CustomSelect.vue'
@@ -78,7 +77,7 @@ function init() {
 
   // 加载 HDR 环境贴图
   new HDRLoader()
-    .load(hdrTexture, function (texture) {
+    .load('/assets/moonless_golf_1k.hdr', function (texture) {
       texture.mapping = THREE.EquirectangularReflectionMapping
       scene.background = texture
       scene.environment = texture

@@ -85,6 +85,13 @@ let caeViewDistance = 5 // 观看 CAE 模型的合适距离
 let baseSceneModel: THREE.Group | null = null // 基础场景模型
 let sceneBoundaryBox: THREE.Box3Helper | null = null // 场景边界盒子
 
+// 切面相关变量
+let meshClip: THREE.Mesh | null = null // 切面网格
+let modelOffsetY = 0 // 模型 Y 轴偏移量，用于切面计算
+let getClipFrameTimeout: number | undefined // 切面请求防抖定时器
+const clipUrl: string | undefined = '/api/Clip' // 切面数据请求 URL
+const clipPath: string | undefined = '470/Output/Default' // 切面数据文件路径
+
 let lut = new Lut()
 let planes: THREE.Plane[] = []
 let planeHelpers: THREE.PlaneHelper[] = []
@@ -317,6 +324,7 @@ function setupAnimationWatchers() {
 function setupPlaneWatchers() {
   watch(() => guiParams.planeX.scope, (d: number) => {
     if (planes[0]) planes[0].constant = d
+    planeChange('x')
   })
   watch(() => guiParams.planeX.plan, (v: boolean) => {
     if (planeHelpers[0]) planeHelpers[0].visible = v
@@ -324,6 +332,7 @@ function setupPlaneWatchers() {
 
   watch(() => guiParams.planeY.scope, (d: number) => {
     if (planes[1]) planes[1].constant = d
+    planeChange('y')
   })
   watch(() => guiParams.planeY.plan, (v: boolean) => {
     if (planeHelpers[1]) planeHelpers[1].visible = v
@@ -331,6 +340,7 @@ function setupPlaneWatchers() {
 
   watch(() => guiParams.planeZ.scope, (d: number) => {
     if (planes[2]) planes[2].constant = d
+    planeChange('z')
   })
   watch(() => guiParams.planeZ.plan, (v: boolean) => {
     if (planeHelpers[2]) planeHelpers[2].visible = v
@@ -621,8 +631,8 @@ async function loadCAEModel() {
 
     // 加载节点数据和数值数据
     const [nodeResponse, valueResponse] = await Promise.all([
-      fetch(`/src/assets/objects/${guiParams.modelName}/FNode.json`).then(r => r.json()),
-      fetch(`/src/assets/objects/${guiParams.modelName}/FValue.json`).then(r => r.json())
+      fetch(`/assets/objects/${guiParams.modelName}/FNode.json`).then(r => r.json()),
+      fetch(`/assets/objects/${guiParams.modelName}/FValue.json`).then(r => r.json())
     ])
 
     const nodeData = nodeResponse;
@@ -649,7 +659,8 @@ async function loadCAEModel() {
     const bbox = geometry.boundingBox!
 
     // Y 轴偏移，让模型底部在 y在0 的基础上加
-    const offsetY = -bbox.min.y + 1
+    const offsetY = -bbox.min.y
+    modelOffsetY = offsetY // 保存偏移量供切面计算使用
     const positionAttr = geometry.attributes.position
     if (positionAttr) {
       const positions = positionAttr.array as Float32Array
@@ -728,8 +739,8 @@ async function loadCAEModel() {
 async function loadHDR() {
 
   const loader = new HDRLoader();
-  const env = await loader.loadAsync(new URL('../assets/hdr/empty_play_room_2k.hdr', import.meta.url).href);
-  const bg = await loader.loadAsync(new URL('../assets/hdr/bambanani_sunset_2k.hdr', import.meta.url).href);
+  const env = await loader.loadAsync('/assets/hdr/empty_play_room_2k.hdr');
+  const bg = await loader.loadAsync('/assets/hdr/bambanani_sunset_2k.hdr');
 
   env.mapping = THREE.EquirectangularReflectionMapping;
   bg.mapping = THREE.EquirectangularReflectionMapping;
@@ -758,7 +769,7 @@ async function loadBaseScene() {
   try {
     const loader = new GLTFLoader()
     // 加载 tjdx.glb 模型
-    const gltf = await loader.loadAsync('/src/assets/models/tjdx.glb')
+    const gltf = await loader.loadAsync('/assets/models/tjdx.glb')
 
     baseSceneModel = gltf.scene;
     baseSceneModel.name = 'Base-Scene';
@@ -1032,6 +1043,23 @@ function updateColors() {
     }
   }
   colors.needsUpdate = true
+
+  // 更新切面网格颜色
+  if (meshClip) {
+    const geometryClip = meshClip.geometry
+    const pressuresClip = geometryClip.attributes.pressure
+    const colorsClip = geometryClip.attributes.color
+    if (pressuresClip && colorsClip) {
+      for (let i = 0; i < pressuresClip.array.length; i++) {
+        const colorValue = pressuresClip.array[i] ?? 0
+        const color = lut.getColor(colorValue)
+        if (color) {
+          colorsClip.setXYZ(i, color.r, color.g, color.b)
+        }
+      }
+      colorsClip.needsUpdate = true
+    }
+  }
 
   // 更新 LUT 显示
   updateLutDisplay()
@@ -1488,6 +1516,198 @@ function animationCleanup() {
       container.value.removeChild(vrButton)
     }
   }
+}
+
+/**
+ * 切面位置变化处理函数
+ * @param type - 切面类型（X/Y/Z 轴）
+ */
+function planeChange(type: 'x' | 'y' | 'z') {
+  // 移除旧的切面网格
+  if (meshClip) {
+    if (caePivot) {
+      caePivot.remove(meshClip)
+    } else {
+      scene.remove(meshClip)
+    }
+    meshClip = null
+  }
+
+  // 如果配置了切面数据 URL，请求新的切面数据
+  if (clipUrl) {
+    getClipFrame(type)
+  }
+}
+
+/**
+ * 从服务器获取切面数据并渲染切面网格
+ * @param type - 切面类型（X/Y/Z 轴）
+ */
+function getClipFrame(type: 'x' | 'y' | 'z') {
+  if (getClipFrameTimeout) {
+    clearTimeout(getClipFrameTimeout)
+    getClipFrameTimeout = undefined
+  }
+
+  getClipFrameTimeout = setTimeout(async () => {
+    if (!caeMesh || !caePivot) {
+      console.warn('CAE 模型或 Pivot 未初始化')
+      return
+    }
+
+    // 获取世界坐标系中的切面点
+    const worldPoint = new THREE.Vector3()
+    if (type === 'x') {
+      worldPoint.set(planes[0]?.constant ?? 0, 0, 0)
+    } else if (type === 'y') {
+      worldPoint.set(0, planes[1]?.constant ?? 0, 0)
+    } else {
+      worldPoint.set(0, 0, planes[2]?.constant ?? 0)
+    }
+
+    // 将世界坐标转换回原始模型的局部坐标（未经变换的坐标）
+    // 1. 减去 pivot 的世界位置
+    worldPoint.sub(caePivot.position)
+    
+    // 2. 减去 caeMesh 在 pivot 中的局部偏移
+    worldPoint.sub(caeMesh.position)
+    
+    // 3. 除以缩放比例
+    const scale = caeMesh.scale.x // 使用 uniform scale
+    worldPoint.divideScalar(scale)
+    
+    // 4. 减去 Y 轴偏移量，转换回服务器数据的原始坐标系
+    worldPoint.y -= modelOffsetY
+
+    // 确定切面方向索引
+    let xyz: number
+    if (type === 'x') {
+      xyz = 0
+    } else if (type === 'y') {
+      xyz = 1
+    } else {
+      xyz = 2
+    }
+
+    const point: [number, number, number] = [worldPoint.x, worldPoint.y, worldPoint.z]
+    console.log('世界坐标切面点:', type === 'x' ? planes[0]?.constant : type === 'y' ? planes[1]?.constant : planes[2]?.constant)
+    console.log('转换后的原始坐标切面点:', point)
+
+    try {
+      // 获取当前选中的帧 key
+      const currentFrame = guiParams.frame || guiParams.nownode[0]?.key
+
+      // 构建查询参数，Point 参数需要重复三次
+      const searchParams = new URLSearchParams()
+      searchParams.append('path', clipPath || '')
+      searchParams.append('type', guiParams.typenode)
+      searchParams.append('frame', currentFrame || '')
+      point.forEach(p => searchParams.append('Point', p.toString()))
+      searchParams.append('xyz', xyz.toString())
+
+      // 向服务器请求切面数据
+      const response = await fetch(`${clipUrl}?${searchParams.toString()}`)
+
+      const data: {
+        clipnode: { indexs: number[]; nodes: number[] };
+        clipvalue: number[];
+      } = await response.json()
+
+      // 移除旧的切面网格
+      if (meshClip) {
+        if (caePivot) {
+          caePivot.remove(meshClip)
+        } else {
+          scene.remove(meshClip)
+        }
+        meshClip = null
+      }
+
+      // 创建新的切面网格
+      meshClip = new THREE.Mesh(
+        undefined,
+        new THREE.MeshStandardMaterial({
+          side: THREE.DoubleSide,
+          metalness: 0,
+          roughness: 0,
+          vertexColors: true,
+          clippingPlanes: planes
+        })
+      )
+      meshClip.name = 'clipMesh'
+      meshClip.renderOrder = 0
+
+      // 自定义着色器，根据顶点颜色调整透明度
+      ;(meshClip.material as THREE.MeshStandardMaterial).onBeforeCompile = shader => {
+        shader.fragmentShader = shader.fragmentShader.replace(
+          'gl_FragColor = vec4( outgoingLight, diffuseColor.a );',
+          `
+            float oldcolor=smoothstep(0.,1.,vColor.r);
+            diffuseColor.a=max(.2,oldcolor);
+            gl_FragColor = vec4( outgoingLight, diffuseColor.a );
+          `
+        )
+      }
+
+      // 填充切面几何体数据
+      const clipJsonStr = {
+        metadata: { version: 4, type: 'BufferGeometry' },
+        uuid: 'CLIP-' + Date.now(),
+        type: 'BufferGeometry',
+        data: {
+          index: { type: 'Uint32Array', array: data.clipnode.indexs },
+          attributes: {
+            position: { itemSize: 3, type: 'Float32Array', array: data.clipnode.nodes },
+            pressure: { itemSize: 1, type: 'Float32Array', array: data.clipvalue }
+          }
+        }
+      }
+
+      // 创建几何体
+      const loader = new THREE.BufferGeometryLoader()
+      const geometry = loader.parse(clipJsonStr)
+
+      // 应用 Y 轴偏移，与主模型保持一致
+      const clipPositionAttr = geometry.attributes.position
+      if (clipPositionAttr) {
+        const clipPositions = clipPositionAttr.array as Float32Array
+        for (let i = 1; i < clipPositions.length; i += 3) {
+          clipPositions[i] = (clipPositions[i] ?? 0) + modelOffsetY
+        }
+        clipPositionAttr.needsUpdate = true
+      }
+
+      // 初始化顶点颜色
+      const colors = []
+      const positionCount = geometry.attributes.position?.count ?? 0
+      for (let i = 0; i < positionCount; i++) {
+        colors.push(1, 1, 1)
+      }
+      geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3))
+
+      // 设置几何体并计算法线
+      meshClip.geometry = geometry
+      if (meshClip.geometry) {
+        meshClip.geometry.computeVertexNormals()
+      }
+
+      // 将切面网格添加到 caePivot，使其继承相同的变换（缩放和位置）
+      // 同时设置与 caeMesh 相同的局部位置和缩放
+      if (caePivot && caeMesh) {
+        meshClip.position.copy(caeMesh.position) // 复制 caeMesh 在 pivot 中的局部位置
+        meshClip.scale.copy(caeMesh.scale) // 复制缩放
+        caePivot.add(meshClip)
+      } else {
+        scene.add(meshClip)
+      }
+      
+      updateColors()
+
+      console.log('切面网格创建成功，已添加到', caePivot ? 'caePivot' : 'scene')
+    } catch (error) {
+      console.error('获取切面数据失败:', error)
+    }
+  }, 500)
 }
 
 function mapTaskData(taskvals: Array<{

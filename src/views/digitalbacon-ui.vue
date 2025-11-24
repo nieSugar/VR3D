@@ -57,7 +57,7 @@ async function init() {
   camera.position.y = 1.7
 
   sceneBackground = new THREE.CubeTextureLoader()
-    .setPath('/src/assets/images/skyboxes/blue_sky/')
+    .setPath('/assets/images/skyboxes/blue_sky/')
     .load(['skybox_right.jpg', 'skybox_left.jpg', 'skybox_up.jpg',
       'skybox_down.jpg', 'skybox_front.jpg', 'skybox_back.jpg']);
   scene.background = sceneBackground;

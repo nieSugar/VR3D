@@ -416,8 +416,8 @@ async function init() {
 
   // 加载节点数据和数值数据
   const [nodeResponse, valueResponse] = await Promise.all([
-    fetch('/src/assets/objects/470/FNode.json').then(r => r.json()),
-    fetch('/src/assets/objects/470/FValue.json').then(r => r.json())
+    fetch('/assets/objects/470/FNode.json').then(r => r.json()),
+    fetch('/assets/objects/470/FValue.json').then(r => r.json())
   ])
   nodeParam = nodeResponse;
 
