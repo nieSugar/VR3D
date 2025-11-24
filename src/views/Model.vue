@@ -183,9 +183,7 @@ const colorMapOptions: SelectOption[] = [
 // 数据类型选项（动态生成）
 const typeNodeOptions = ref<SelectOption[]>([]);
 
-const modelNameOptions = ['comsol', 're10', 're100', 're10000'].map(s => ({ value: `${s}Json`, label: s }));
-console.log(modelNameOptions, 'modelNameOptions');
-
+const modelNameOptions = ['re10', 're100', 're10000', 'comsol'].map(s => ({ value: `${s}Json`, label: s }));
 
 // 时间帧选项（动态生成）
 const frameOptions = ref<SelectOption[]>([]);
@@ -231,8 +229,12 @@ const guiParams = reactive({
   // 场景控制
   scene: {
     backgroundColor: '#1a1a2e',
-    autoRotate: false,
-    rotationSpeed: 1.0,
+  },
+  // 旋转控制
+  rotation: {
+    upDown: false,        // 上下旋转开关
+    leftRight: false,     // 左右旋转开关
+    speed: 1.0,           // 旋转速度（统一控制）
   },
   // 裁剪平面
   planeX: { scope: 0, plan: false },
@@ -251,7 +253,6 @@ const guiParams = reactive({
 });
 
 setupCaeModelWatchers()
-setupSceneWatchers()
 setupAnimationWatchers()
 setupPlaneWatchers()
 setupDataWatchers()
@@ -301,16 +302,6 @@ function setupCaeModelWatchers() {
       loadCAEModel();
     }
   });
-}
-
-function setupSceneWatchers() {
-  watch(() => guiParams.scene.autoRotate, (value: boolean) => {
-    controls.autoRotate = value
-  })
-
-  watch(() => guiParams.scene.rotationSpeed, (value: number) => {
-    controls.autoRotateSpeed = value
-  })
 }
 
 function setupAnimationWatchers() {
@@ -716,8 +707,12 @@ async function loadCAEModel() {
     updateColors()
     updateLutDisplay()
 
-    // 使用 focusObj 自动调整相机
-    focusObj(caeMesh)
+    // 使用 focusObj 自动调整相机（聚焦到 pivot 组）
+    if (caePivot) {
+      focusObj(caePivot)
+    } else {
+      focusObj(caeMesh)
+    }
 
     // 更新裁剪平面范围（使用变换后的包围盒）
     updateClippingPlaneRanges()
@@ -855,21 +850,32 @@ function alignCaeModelToBaseScene() {
     caeMesh.updateMatrixWorld(true)
   }
 
-  // 缩放后重新对齐中心点
+  // 缩放后计算几何中心
   caeMesh.updateMatrixWorld(true)
   const scaledBox = new THREE.Box3().setFromObject(caeMesh)
   const scaledCenter = scaledBox.getCenter(new THREE.Vector3())
-  const targetCenter = new THREE.Vector3(scaledCenter.x - 1.5, scaledCenter.y + 1.5, scaledCenter.z)
-  const offset = targetCenter.clone().sub(scaledCenter)
-  caeMesh.position.add(offset)
-  caeMesh.updateMatrixWorld(true)
 
-  // 以目标中心为枢轴，后续旋转围绕该中心
+  // 目标显示位置
+  const targetCenter = new THREE.Vector3(scaledCenter.x - 1.5, scaledCenter.y + 1.5, scaledCenter.z)
+
+  // 创建 pivot 组，放在目标中心位置
   if (!caePivot) {
     caePivot = new THREE.Group()
     scene.add(caePivot)
   }
   caePivot.position.copy(targetCenter)
+
+  // 将 caeMesh 从场景中移除，添加到 caePivot 中
+  scene.remove(caeMesh)
+
+  // 调整 caeMesh 在 pivot 局部坐标系中的位置
+  // 使得模型的几何中心正好在 pivot 的原点 (0,0,0)
+  // 偏移量 = 模型当前位置 - 几何中心
+  const localOffset = caeMesh.position.clone().sub(scaledCenter)
+  caeMesh.position.copy(localOffset)
+
+  caePivot.add(caeMesh)
+  caePivot.updateMatrixWorld(true)
 
   // 记录中心点供后续使用
   caeModelCenter.copy(targetCenter)
@@ -1348,6 +1354,18 @@ function animationLoop() {
     }
   }
 
+  // CAE模型旋转控制（以中心点为基点）
+  if (caePivot) {
+    // 上下旋转（绕X轴）
+    if (guiParams.rotation.upDown) {
+      caePivot.rotateX(delta * guiParams.rotation.speed * 0.5)
+    }
+    // 左右旋转（绕Y轴）
+    if (guiParams.rotation.leftRight) {
+      caePivot.rotateY(delta * guiParams.rotation.speed * 0.5)
+    }
+  }
+
   // 更新 OrbitControls
   if (controls.enabled) {
     controls.update()
@@ -1637,18 +1655,16 @@ function registerLifecycleHooks() {
           <CustomSelectV2 v-model="guiParams.caeModel.colorMap" label="颜色映射" :options="colorMapOptions" />
           <CustomCheckbox v-model="guiParams.animate" label="动画播放" />
 
-          <CustomCheckbox v-model="guiParams.scene.autoRotate" label="自动旋转" />
-          <CustomSlider v-model="guiParams.scene.rotationSpeed" label="旋转速度" :min="0.1" :max="5" :step="0.1"
-            :decimals="1" />
+          <!-- 旋转控制 -->
+          <CustomCheckbox v-model="guiParams.rotation.upDown" label="上下旋转" />
+          <CustomCheckbox v-model="guiParams.rotation.leftRight" label="左右旋转" />
+          <CustomSlider v-model="guiParams.rotation.speed" label="旋转速度" :min="0.1" :max="5" :step="0.1" :decimals="1" />
 
-          <CustomCheckbox v-model="guiParams.planeX.plan" label="显示X轴" />
-          <CustomSlider v-model="guiParams.planeX.scope" label="X轴位置" :min="planeRanges.x.min" :max="planeRanges.x.max"
+          <CustomSlider v-model="guiParams.planeX.scope" label="X轴剖切" :min="planeRanges.x.min" :max="planeRanges.x.max"
             :step="0.01" :decimals="2" />
-          <CustomCheckbox v-model="guiParams.planeY.plan" label="显示Y轴" />
-          <CustomSlider v-model="guiParams.planeY.scope" label="Y轴位置" :min="planeRanges.y.min" :max="planeRanges.y.max"
+          <CustomSlider v-model="guiParams.planeY.scope" label="Y轴剖切" :min="planeRanges.y.min" :max="planeRanges.y.max"
             :step="0.01" :decimals="2" />
-          <CustomCheckbox v-model="guiParams.planeZ.plan" label="显示Z轴" />
-          <CustomSlider v-model="guiParams.planeZ.scope" label="Z轴位置" :min="planeRanges.z.min" :max="planeRanges.z.max"
+          <CustomSlider v-model="guiParams.planeZ.scope" label="Z轴剖切" :min="planeRanges.z.min" :max="planeRanges.z.max"
             :step="0.01" :decimals="2" />
         </div>
       </div>
@@ -1678,19 +1694,17 @@ function registerLifecycleHooks() {
         <CustomSelectV2 v-model="guiParams.caeModel.colorMap" label="颜色映射" :options="colorMapOptions" />
         <CustomCheckbox v-model="guiParams.animate" label="动画播放" />
 
-        <CustomCheckbox v-model="guiParams.scene.autoRotate" label="自动旋转" />
-        <CustomSlider v-model="guiParams.scene.rotationSpeed" label="旋转速度" :min="0.1" :max="5" :step="0.1"
-          :decimals="1" />
+        <!-- 旋转控制 -->
+        <CustomCheckbox v-model="guiParams.rotation.upDown" label="上下旋转" />
+        <CustomCheckbox v-model="guiParams.rotation.leftRight" label="左右旋转" />
+        <CustomSlider v-model="guiParams.rotation.speed" label="旋转速度" :min="0.1" :max="5" :step="0.1" :decimals="1" />
 
         <!-- 裁剪平面 -->
-        <CustomCheckbox v-model="guiParams.planeX.plan" label="显示X轴" />
-        <CustomSlider v-model="guiParams.planeX.scope" label="X轴位置" :min="planeRanges.x.min" :max="planeRanges.x.max"
+        <CustomSlider v-model="guiParams.planeX.scope" label="X轴剖切" :min="planeRanges.x.min" :max="planeRanges.x.max"
           :step="0.01" :decimals="2" />
-        <CustomCheckbox v-model="guiParams.planeY.plan" label="显示Y轴" />
-        <CustomSlider v-model="guiParams.planeY.scope" label="Y轴位置" :min="planeRanges.y.min" :max="planeRanges.y.max"
+        <CustomSlider v-model="guiParams.planeY.scope" label="Y轴剖切" :min="planeRanges.y.min" :max="planeRanges.y.max"
           :step="0.01" :decimals="2" />
-        <CustomCheckbox v-model="guiParams.planeZ.plan" label="显示Z轴" />
-        <CustomSlider v-model="guiParams.planeZ.scope" label="Z轴位置" :min="planeRanges.z.min" :max="planeRanges.z.max"
+        <CustomSlider v-model="guiParams.planeZ.scope" label="Z轴剖切" :min="planeRanges.z.min" :max="planeRanges.z.max"
           :step="0.01" :decimals="2" />
       </div>
 

@@ -11,10 +11,6 @@
     class="value-popover">
     {{ mapNumber(pointValue) }}
   </div>
-  <div ref="threeDguiRef">
-    <button @click="toggle3DGUI">切换3D GUI</button>
-    {{ is3DGUIVisible ? '3D GUI 可见' : '3D GUI 隐藏' }}
-  </div>
 </template>
 
 <script lang="ts" setup>
@@ -26,7 +22,6 @@ import GUI from 'lil-gui';
 import { Lut } from 'three/examples/jsm/math/Lut.js';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
 import { CSS2DRenderer } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
-import { CSS3DRenderer, CSS3DSprite } from 'three/examples/jsm/renderers/CSS3DRenderer.js';
 import { onMounted, onUnmounted, ref, unref, watch } from 'vue';
 
 interface KvType {
@@ -65,6 +60,9 @@ const newTaskValues: Array<{
 }> = [];
 
 let stlFileUrl: string | undefined;
+let clipUrl: string | undefined = '/api/Clip'; // 切面数据请求 URL
+let clipPath: string | undefined = '470/Output/Default' // 切面数据文件路径
+let modelOffsetY = 0; // 模型 Y 轴偏移量，用于切面计算
 
 // 参数相关
 const unit = ref();
@@ -100,7 +98,6 @@ const frameNumber = ref(0);
 const container = ref<HTMLDivElement>();
 const lutRef = ref<HTMLDivElement>();
 const shuzhiRef = ref<HTMLDivElement>();
-const threeDguiRef = ref<HTMLDivElement>();
 
 let perpCamera: THREE.PerspectiveCamera;
 let orthoCamera: THREE.OrthographicCamera;
@@ -115,9 +112,6 @@ let scene: THREE.Scene;
 let uiScene: THREE.Scene;
 let controls: OrbitControls;
 let label2dRenderer: CSS2DRenderer;
-let css3dRenderer: CSS3DRenderer;
-let css3dSprite: CSS3DSprite | null = null;
-const is3DGUIVisible = ref(true);
 
 // VR 相关
 let vrManager: VRManager;
@@ -241,14 +235,6 @@ const jsonstr = {
   }
 };
 
-// 切换3D GUI显示/隐藏
-function toggle3DGUI() {
-  is3DGUIVisible.value = !is3DGUIVisible.value;
-  if (css3dSprite) {
-    css3dSprite.visible = is3DGUIVisible.value;
-  }
-}
-
 function getValue() {
   window.addEventListener('mousemove', event => {
     if (stlFileUrl && params.opacity !== 0) {
@@ -321,14 +307,6 @@ async function init() {
   label2dRenderer.domElement.style.top = '0';
   label2dRenderer.domElement.style.pointerEvents = 'none';
   container.value?.appendChild(label2dRenderer.domElement);
-
-  // CSS3D 渲染器（用于3D GUI）
-  css3dRenderer = new CSS3DRenderer();
-  css3dRenderer.setSize(window.innerWidth, window.innerHeight);
-  css3dRenderer.domElement.style.position = 'absolute';
-  css3dRenderer.domElement.style.top = '0';
-  css3dRenderer.domElement.style.pointerEvents = 'none';
-  container.value?.appendChild(css3dRenderer.domElement);
 
   planes = [
     new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0),
@@ -430,7 +408,7 @@ async function init() {
   ground.position.y = 0;
   ground.receiveShadow = true;
   scene.add(ground);
-  
+
   // 添加网格线帮助定位
   const gridHelper = new THREE.GridHelper(50, 50, 0x444466, 0x222244);
   gridHelper.position.y = 0.01; // 稍微抬高避免Z-fighting
@@ -461,10 +439,10 @@ async function init() {
   taskvals.push(...valueResponse);
   mapTaskData();
   showTaskList.value = unref(tasks).length > 1;
-  
+
   // 初始化调试面板
   initDebugPanel();
-  
+
   loadJson();
 }
 
@@ -481,14 +459,23 @@ function loadJson() {
       .onChange((v: boolean) => {
         if (planeHelpers[0]) planeHelpers[0].visible = v;
       });
+    // 计算 X 轴裁剪范围（在模型范围基础上扩展 10%）
+    const lenX = bbox.max.x - bbox.min.x;
+    const newMinX = bbox.min.x - lenX * 0.1;
+    const newMaxX = bbox.max.x + lenX * 0.1;
+    const newLenX = newMaxX - newMinX;
+    params.planeX.maxValue = 100;
+    params.planeX.newLen = newLenX;
+    params.planeX.newMin = newMinX;
+
     planeX
       .add(params.planeX, 'scope')
       .name('范围')
-      .setValue(bbox.max.x + bbox.max.x * 0.1)
-      .min(bbox.min.x + bbox.min.x * 0.1)
-      .max(bbox.max.x + bbox.max.x * 0.1)
+      .setValue(100)
+      .min(0)
+      .max(100)
       .onChange((d: number) => {
-        if (planes[0]) planes[0].constant = d;
+        planeChange('x', d);
       });
     planeX.open();
 
@@ -500,14 +487,23 @@ function loadJson() {
       .onChange((v: boolean) => {
         if (planeHelpers[1]) planeHelpers[1].visible = v;
       });
+    // 计算 Y 轴裁剪范围
+    const lenY = bbox.max.y - bbox.min.y;
+    const newMinY = bbox.min.y - lenY * 0.1;
+    const newMaxY = bbox.max.y + lenY * 0.1;
+    const newLenY = newMaxY - newMinY;
+    params.planeY.maxValue = 100;
+    params.planeY.newLen = newLenY;
+    params.planeY.newMin = newMinY;
+
     planeY
       .add(params.planeY, 'scope')
       .name('范围')
-      .setValue(bbox.max.y + bbox.max.y * 0.1)
-      .min(bbox.min.y + bbox.min.y * 0.1)
-      .max(bbox.max.y + bbox.max.y * 0.1)
+      .setValue(100)
+      .min(0)
+      .max(100)
       .onChange((d: number) => {
-        if (planes[1]) planes[1].constant = d;
+        planeChange('y', d);
       });
     planeY.open();
 
@@ -519,17 +515,26 @@ function loadJson() {
       .onChange((v: boolean) => {
         if (planeHelpers[2]) planeHelpers[2].visible = v;
       });
+    // 计算 Z 轴裁剪范围
+    const lenZ = bbox.max.z - bbox.min.z;
+    const newMinZ = bbox.min.z - lenZ * 0.1;
+    const newMaxZ = bbox.max.z + lenZ * 0.1;
+    const newLenZ = newMaxZ - newMinZ;
+    params.planeZ.maxValue = 100;
+    params.planeZ.newLen = newLenZ;
+    params.planeZ.newMin = newMinZ;
+
     planeZ
       .add(params.planeZ, 'scope')
       .name('范围')
-      .setValue(bbox.max.z + bbox.max.z * 0.1)
-      .min(bbox.min.z + bbox.min.z * 0.1)
-      .max(bbox.max.z + bbox.max.z * 0.1)
+      .setValue(100)
+      .min(0)
+      .max(100)
       .onChange((d: number) => {
-        if (planes[2]) planes[2].constant = d;
+        planeChange('z', d);
       });
     planeZ.open();
-    
+
     gui
       .add(params, 'animate')
       .name('动画')
@@ -676,6 +681,8 @@ function loadModel(callback: (type: string[]) => void) {
   geometry.computeBoundingBox();
   const bbox = geometry.boundingBox!;
   const offsetY = -bbox.min.y;
+  modelOffsetY = offsetY; // 保存偏移量供切面计算使用
+  console.log(offsetY, 'offsetY');
   const positionAttr = geometry.attributes.position;
   if (positionAttr) {
     const positions = positionAttr.array as Float32Array;
@@ -935,7 +942,6 @@ function onWindowResize() {
 
   renderer.setSize(width, height);
   label2dRenderer.setSize(width, height);
-  css3dRenderer.setSize(width, height);
 }
 
 function animate() {
@@ -965,7 +971,6 @@ function animate() {
   renderer.render(scene, perpCamera);
   renderer.render(uiScene, orthoCamera);
   label2dRenderer.render(scene, perpCamera);
-  css3dRenderer.render(scene, perpCamera);
 }
 
 function chunkArray(arr: number[], chunkSize: number) {
@@ -1066,41 +1071,186 @@ function mapTaskData() {
   console.log(newTaskValues, 'newTaskValues');
 }
 
-// 创建和设置 CSS3DSprite
-function setupCSS3DSprite() {
-  if (!gui || !gui.domElement) {
-    console.error('GUI 未初始化');
-    return;
+let getClipFrameTimeout: number | undefined;
+
+/**
+ * 切面位置变化处理函数
+ * @param type - 切面类型（X/Y/Z 轴）
+ * @param data - 切面位置值（0-100 的百分比）
+ */
+function planeChange(type: 'x' | 'y' | 'z', data: number) {
+  data = data / 100; // 转换为 0-1 范围
+
+  if (type === 'x') {
+    // 更新 X 轴切面位置
+    if (planes[0]) planes[0].constant = data * params.planeX.newLen + params.planeX.newMin;
+    // 重置 Y、Z 轴切面为不裁剪状态
+    if (planes[1]) planes[1].constant = params.planeY.maxValue * params.planeY.newLen;
+    params.planeY.scope = 100;
+    if (planes[2]) planes[2].constant = params.planeZ.maxValue * params.planeZ.newLen;
+    params.planeZ.scope = 100;
+  } else if (type === 'y') {
+    // 更新 Y 轴切面位置
+    if (planes[1]) planes[1].constant = data * params.planeY.newLen + params.planeY.newMin;
+    // 重置 X、Z 轴切面为不裁剪状态
+    if (planes[0]) planes[0].constant = params.planeX.maxValue * params.planeX.newLen;
+    params.planeX.scope = 100;
+    if (planes[2]) planes[2].constant = params.planeZ.maxValue * params.planeZ.newLen;
+    params.planeZ.scope = 100;
+  } else {
+    // 更新 Z 轴切面位置
+    if (planes[2]) planes[2].constant = data * params.planeZ.newLen + params.planeZ.newMin;
+    // 重置 X、Y 轴切面为不裁剪状态
+    if (planes[0]) planes[0].constant = params.planeX.maxValue * params.planeX.newLen;
+    params.planeX.scope = 100;
+    if (planes[1]) planes[1].constant = params.planeY.maxValue * params.planeY.newLen;
+    params.planeY.scope = 100;
   }
 
-  // 创建包装器 div
-  const guiWrapper = document.createElement('div');
-  guiWrapper.style.width = '300px';
-  guiWrapper.style.height = '400px';
-  guiWrapper.style.background = 'rgba(0, 0, 0, 0.7)';
-  guiWrapper.style.borderRadius = '8px';
-  guiWrapper.style.padding = '10px';
-  guiWrapper.style.pointerEvents = 'auto';
-  
-  // 将 GUI 移到包装器中
-  guiWrapper.appendChild(gui.domElement);
-  
-  // 设置 GUI 样式
-  gui.domElement.style.position = 'relative';
-  gui.domElement.style.top = '0';
-  gui.domElement.style.right = '0';
-  gui.domElement.style.margin = '0';
+  // 移除旧的切面网格
+  if (meshClip) {
+    scene.remove(meshClip);
+    meshClip = null;
+  }
 
-  // 创建 CSS3DSprite
-  css3dSprite = new CSS3DSprite(guiWrapper);
-  
-  // 设置位置和缩放
-  css3dSprite.position.set(5, 2, -5);
-  css3dSprite.scale.set(0.01, 0.01, 0.01);
-  
-  scene.add(css3dSprite);
-  
-  console.log('CSS3DSprite 已创建并添加到场景');
+  // 如果配置了切面数据 URL，请求新的切面数据
+  if (clipUrl) {
+    getClipFrame(type);
+  }
+}
+
+/**
+ * 从服务器获取切面数据并渲染切面网格
+ * @param type - 切面类型（X/Y/Z 轴）
+ */
+function getClipFrame(type: 'x' | 'y' | 'z') {
+  if (getClipFrameTimeout) {
+    clearTimeout(getClipFrameTimeout);
+    getClipFrameTimeout = undefined;
+  }
+
+  getClipFrameTimeout = setTimeout(async () => {
+    // 构建切面点坐标（在切面上的一个点）
+    // 注意：Y 轴坐标需要减去模型偏移量，转换回原始坐标系
+    const pointCoordinates: Record<'x' | 'y' | 'z', [number, number, number]> = {
+      x: [planes[0]?.constant ?? 0, 0, 0],
+      y: [0, (planes[1]?.constant ?? 0) - modelOffsetY, 0],
+      z: [0, 0, planes[2]?.constant ?? 0]
+    };
+
+    // 确定切面方向索引
+    let xyz: number;
+    if (type === 'x') {
+      xyz = 0;
+    } else if (type === 'y') {
+      xyz = 1;
+    } else {
+      xyz = 2;
+    }
+
+    const point: [number, number, number] = pointCoordinates[type];
+    console.log('切面点坐标:', point);
+
+    try {
+      // 获取当前选中的帧 key
+      const currentFrame = params.nownode[frameNumber.value]?.key || params.nownode[0]?.key;
+
+      // 构建查询参数，Point 参数需要重复三次
+      const searchParams = new URLSearchParams();
+      searchParams.append('path', clipPath || '');
+      searchParams.append('type', params.nameKey);
+      searchParams.append('frame', currentFrame || '');
+      point.forEach(p => searchParams.append('Point', p.toString()));
+      searchParams.append('xyz', xyz.toString());
+
+      // 向服务器请求切面数据
+      const response = await fetch(`${clipUrl}?${searchParams.toString()}`);
+
+      const data = await response.json();
+
+      // 移除旧的切面网格
+      if (meshClip) {
+        scene.remove(meshClip);
+        meshClip = null;
+      }
+
+      // 创建新的切面网格
+      meshClip = new THREE.Mesh(
+        undefined,
+        new THREE.MeshStandardMaterial({
+          side: THREE.DoubleSide,
+          metalness: 0,
+          roughness: 0,
+          vertexColors: true,
+          clippingPlanes: planes
+        })
+      );
+      meshClip.name = 'clipMesh';
+      meshClip.renderOrder = 0;
+
+      // 自定义着色器，根据顶点颜色调整透明度
+      (meshClip.material as THREE.MeshStandardMaterial).onBeforeCompile = shader => {
+        shader.fragmentShader = shader.fragmentShader.replace(
+          'gl_FragColor = vec4( outgoingLight, diffuseColor.a );',
+          `
+            float oldcolor=smoothstep(0.,1.,vColor.r);
+            diffuseColor.a=max(.2,oldcolor);
+            gl_FragColor = vec4( outgoingLight, diffuseColor.a );
+          `
+        );
+      };
+
+      // 填充切面几何体数据
+      const clipJsonStr = {
+        metadata: { version: 4, type: 'BufferGeometry' },
+        uuid: 'CLIP-' + Date.now(),
+        type: 'BufferGeometry',
+        data: {
+          index: { type: 'Uint32Array', array: data.clipnode.indexs },
+          attributes: {
+            position: { itemSize: 3, type: 'Float32Array', array: data.clipnode.nodes },
+            pressure: { itemSize: 1, type: 'Float32Array', array: data.clipvalue }
+          }
+        }
+      };
+
+      // 创建几何体
+      const loader = new THREE.BufferGeometryLoader();
+      const geometry = loader.parse(clipJsonStr);
+
+      // 应用 Y 轴偏移，与主模型保持一致
+      const clipPositionAttr = geometry.attributes.position;
+      if (clipPositionAttr) {
+        const clipPositions = clipPositionAttr.array as Float32Array;
+        for (let i = 1; i < clipPositions.length; i += 3) {
+          clipPositions[i] = (clipPositions[i] ?? 0) + modelOffsetY;
+        }
+        clipPositionAttr.needsUpdate = true;
+      }
+
+      // 初始化顶点颜色
+      const colors = [];
+      const positionCount = geometry.attributes.position?.count ?? 0;
+      for (let i = 0; i < positionCount; i++) {
+        colors.push(1, 1, 1);
+      }
+      geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+
+      // 设置几何体并计算法线
+      meshClip.geometry = geometry;
+      if (meshClip.geometry) {
+        meshClip.geometry.computeVertexNormals();
+      }
+
+      // 添加到场景并更新颜色
+      scene.add(meshClip);
+      updateColors();
+
+      console.log('切面网格创建成功');
+    } catch (error) {
+      console.error('获取切面数据失败:', error);
+    }
+  }, 500);
 }
 
 onMounted(async () => {
@@ -1121,31 +1271,18 @@ onMounted(async () => {
     onSessionStart: () => {
       isVRMode.value = true;
       debugPanel.hide();
-      // 隐藏 3D GUI
-      if (css3dSprite) {
-        css3dSprite.visible = false;
-      }
     },
     onSessionEnd: () => {
       isVRMode.value = false;
       debugPanel.show();
-      // 显示 3D GUI
-      if (css3dSprite) {
-        css3dSprite.visible = true;
-      }
     }
   });
-  
+
   if (container.value) {
     vrManager.init(container.value);
   }
 
   renderer.setAnimationLoop(animate);
-
-  // 等待 GUI 初始化后再创建 CSS3DSprite
-  setTimeout(() => {
-    setupCSS3DSprite();
-  }, 1000);
 
   getValue();
 });
@@ -1153,14 +1290,9 @@ onMounted(async () => {
 onUnmounted(() => {
   renderer?.setAnimationLoop(null);
   gui?.destroy();
-  
+
   if (vrManager) {
     vrManager.dispose();
-  }
-  
-  if (css3dSprite) {
-    scene.remove(css3dSprite);
-    css3dSprite = null;
   }
 });
 </script>
