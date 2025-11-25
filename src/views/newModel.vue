@@ -61,7 +61,7 @@ const newTaskValues: Array<{
 
 let stlFileUrl: string | undefined;
 let clipUrl: string | undefined = '/api/Clip'; // 切面数据请求 URL
-let clipPath: string | undefined = '470/Output/Default' // 切面数据文件路径
+let clipPath: string | undefined = 'comsolJson' // 切面数据文件路径
 let modelOffsetY = 0; // 模型 Y 轴偏移量，用于切面计算
 
 // 参数相关
@@ -416,8 +416,8 @@ async function init() {
 
   // 加载节点数据和数值数据
   const [nodeResponse, valueResponse] = await Promise.all([
-    fetch('/assets/objects/470/FNode.json').then(r => r.json()),
-    fetch('/assets/objects/470/FValue.json').then(r => r.json())
+    fetch('/assets/objects/comsolJson/FNode.json').then(r => r.json()),
+    fetch('/assets/objects/comsolJson/FValue.json').then(r => r.json())
   ])
   nodeParam = nodeResponse;
 
@@ -682,6 +682,7 @@ function loadModel(callback: (type: string[]) => void) {
   const bbox = geometry.boundingBox!;
   const offsetY = -bbox.min.y;
   modelOffsetY = offsetY; // 保存偏移量供切面计算使用
+  console.log(offsetY, 'offsetY');
   const positionAttr = geometry.attributes.position;
   if (positionAttr) {
     const positions = positionAttr.array as Float32Array;
@@ -1178,10 +1179,10 @@ function getClipFrame(type: 'x' | 'y' | 'z') {
         undefined,
         new THREE.MeshStandardMaterial({
           side: THREE.DoubleSide,
-          vertexColors: true, // 使用顶点颜色
           metalness: 0,
           roughness: 0,
-          // renderOrder: 0
+          vertexColors: true,
+          clippingPlanes: planes
         })
       );
       meshClip.name = 'clipMesh';
@@ -1238,10 +1239,6 @@ function getClipFrame(type: 'x' | 'y' | 'z') {
       // 设置几何体并计算法线
       meshClip.geometry = geometry;
       if (meshClip.geometry) {
-        // meshClip.geometry.verticesNeedUpdate = true;
-        // meshClip.geometry.normalsNeedUpdate = true;
-        meshClip.geometry.computeBoundingSphere();
-        // meshClip.geometry.computeFaceNormals();
         meshClip.geometry.computeVertexNormals();
       }
 

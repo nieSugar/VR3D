@@ -12,6 +12,7 @@ import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 import CustomCheckbox from '../components/CustomCheckbox.vue'
 import CustomSelectV2, { type SelectOption } from '../components/CustomSelectV2.vue'
 import CustomSlider from '../components/CustomSlider.vue'
+import { Reflector } from 'three/examples/jsm/objects/Reflector.js'
 
 // -----------------------------------------------------------------------------
 // 类型定义
@@ -68,7 +69,7 @@ let meshClip: THREE.Mesh | null = null // 切面网格
 let modelOffsetY = 0 // 模型 Y 轴偏移量，用于切面计算
 let getClipFrameTimeout: number | undefined // 切面请求防抖定时器
 const clipUrl: string | undefined = '/api/Clip' // 切面数据请求 URL
-const clipPath: string | undefined = '470/Output/Default' // 切面数据文件路径
+const clipPath: string | undefined = '' // 切面数据文件路径
 
 let lut = new Lut()
 let planes: THREE.Plane[] = []
@@ -225,7 +226,7 @@ const guiParams = reactive({
   planeX: { scope: 0, plan: false },
   planeY: { scope: 0, plan: false },
   planeZ: { scope: 0, plan: false },
-  modelName: 're10Json',
+  modelName: 'comsolJson',
   // 时间帧控制
   currentFrame: 0,
   frames: [] as string[],
@@ -379,11 +380,11 @@ function initSceneAndLight() {
   ];
 
   // 添加平面辅助器
-  planeHelpers = planes.map(p => new THREE.PlaneHelper(p, 20, 0xffffff));
-  planeHelpers.forEach(ph => {
-    ph.visible = false;
-    scene.add(ph);
-  });
+  // planeHelpers = planes.map(p => new THREE.PlaneHelper(p, 20, 0xffffff));
+  // planeHelpers.forEach(ph => {
+  //   ph.visible = false;
+  //   scene.add(ph);
+  // });
 
   // 添加剖切平面对象（使用 stencil buffer）
   planeObjects = [];
@@ -411,7 +412,7 @@ function initSceneAndLight() {
     po.renderOrder = i + 1.1;
     poGroup.add(po);
     planeObjects.push(po);
-    scene.add(poGroup);
+    // scene.add(poGroup);
   }
 
   // // 去掉地面 - 使用室内场景
@@ -430,7 +431,7 @@ function initSceneAndLight() {
 function initCamera() {
   if (!container?.value) return
   const aspect = container.value.clientWidth / container.value.clientHeight
-  camera = new THREE.PerspectiveCamera(75, aspect, 0.1, 1000)
+  camera = new THREE.PerspectiveCamera(60, aspect, 1, 999999999)
   camera.position.set(0, 1.6, 0) // 相机在场景中心，等待模型加载后会调整到房间内部
   scene.add(camera)
 }
@@ -754,6 +755,7 @@ async function loadBaseScene() {
         }
       }
     })
+    // floorPost();
 
     // 添加到场景
     scene.add(baseSceneModel)
@@ -951,10 +953,10 @@ function updateClippingPlaneRanges() {
     ph.size = maxSize
   })
 
-  // 参考 oldModel.vue：使用 bbox.min/max 加上 10% 边距
+  // 使用 bbox.min/max 加上 10% 边距
   const minX = bbox.min.x + bbox.min.x * 0.1
   const maxX = bbox.max.x + bbox.max.x * 0.1
-  const minY = bbox.min.y + bbox.min.y * 0.1
+  const minY = bbox.min.y - bbox.min.y * 0.1
   const maxY = bbox.max.y + bbox.max.y * 0.1
   const minZ = bbox.min.z + bbox.min.z * 0.1
   const maxZ = bbox.max.z + bbox.max.z * 0.1
@@ -967,16 +969,16 @@ function updateClippingPlaneRanges() {
 
   // 设置初始值（禁用裁剪） - 参考 oldModel
   if (planes[0]) {
-    guiParams.planeX.scope = maxX + 10
-    planes[0].constant = maxX + 10
+    guiParams.planeX.scope = maxX
+    planes[0].constant = maxX
   }
   if (planes[1]) {
-    guiParams.planeY.scope = maxY + 10
-    planes[1].constant = maxY + 10
+    guiParams.planeY.scope = maxY
+    planes[1].constant = maxY
   }
   if (planes[2]) {
-    guiParams.planeZ.scope = maxZ + 10
-    planes[2].constant = maxZ + 10
+    guiParams.planeZ.scope = maxZ
+    planes[2].constant = maxZ
   }
 }
 
@@ -1559,7 +1561,8 @@ function getClipFrame(type: 'x' | 'y' | 'z') {
 
       // 构建查询参数，Point 参数需要重复三次
       const searchParams = new URLSearchParams()
-      searchParams.append('path', clipPath || '')
+      // searchParams.append('path', clipPath || '')
+      searchParams.append('path', guiParams.modelName || '')
       searchParams.append('type', guiParams.typenode)
       searchParams.append('frame', currentFrame || '')
       point.forEach(p => searchParams.append('Point', p.toString()))
@@ -1591,7 +1594,6 @@ function getClipFrame(type: 'x' | 'y' | 'z') {
           metalness: 0,
           roughness: 0,
           vertexColors: true,
-          clippingPlanes: planes
         })
       )
       meshClip.name = 'clipMesh'
@@ -1648,6 +1650,7 @@ function getClipFrame(type: 'x' | 'y' | 'z') {
       // 设置几何体并计算法线
       meshClip.geometry = geometry
       if (meshClip.geometry) {
+        meshClip.geometry.computeBoundingSphere();
         meshClip.geometry.computeVertexNormals()
       }
 
@@ -1725,6 +1728,35 @@ function mapTaskData(taskvals: Array<{
       valIsArray
     });
   }
+}
+
+function floorPost() {
+  const floor = baseSceneModel?.children.find(child => child.name === '地板');
+  if (!floor) return;
+  const color = '#777777';
+  const opacity = 0.1;
+  const clipBias = 0.0001;
+
+  const newgeo = floor.geometry.clone() as THREE.BufferGeometry;
+  newgeo.rotateX(Math.PI / 2)
+  const groundReflector = new Reflector(newgeo, {
+    clipBias: clipBias,
+    textureWidth: window.innerWidth * window.devicePixelRatio,
+    textureHeight: window.innerHeight * window.devicePixelRatio,
+    color: new THREE.Color(color).getHex(),
+    // opacity: opacity
+  });
+
+  (groundReflector.material as THREE.MeshStandardMaterial).transparent = true
+  groundReflector.position.x = floor.position.x;
+  groundReflector.position.z = floor.position.z;
+  groundReflector.position.y = floor.position.y + 0.01;
+  groundReflector.scale.x = floor.scale.x;
+  groundReflector.scale.z = floor.scale.y;
+  groundReflector.scale.y = floor.scale.z;
+  groundReflector.rotateX(-Math.PI / 2);
+  scene.add(groundReflector);
+
 }
 
 

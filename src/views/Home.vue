@@ -26,6 +26,9 @@ const goToRouter = (path: string) => {
         <div class="feature-card" @click="goToRouter('/old-model')">
           <h3>🥺 旧场景</h3>
         </div>
+        <div class="feature-card" @click="goToRouter('/new-model')">
+          <h3>😁 新场景</h3>
+        </div>
         <div class="feature-card" @click="goToRouter('/dom')">
           <h3>🥺 dom覆盖</h3>
         </div>
