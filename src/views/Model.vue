@@ -62,7 +62,6 @@ let caePivot: THREE.Group | null = null
 let caeModelCenter = new THREE.Vector3(0, 0, 0) // CAE 模型中心位置
 let caeViewDistance = 5 // 观看 CAE 模型的合适距离
 let baseSceneModel: THREE.Group | null = null // 基础场景模型
-let sceneBoundaryBox: THREE.Box3Helper | null = null // 场景边界盒子
 
 // 切面相关变量
 let meshClip: THREE.Mesh | null = null // 切面网格
@@ -226,7 +225,7 @@ const guiParams = reactive({
   planeX: { scope: 0, plan: false },
   planeY: { scope: 0, plan: false },
   planeZ: { scope: 0, plan: false },
-  modelName: 'comsolJson',
+  modelName: 're10Json',
   // 时间帧控制
   currentFrame: 0,
   frames: [] as string[],
@@ -493,7 +492,7 @@ function initSceneAndLight() {
 function initCamera() {
   if (!container?.value) return
   const aspect = container.value.clientWidth / container.value.clientHeight
-  camera = new THREE.PerspectiveCamera(60, aspect, 1, 999999999)
+  camera = new THREE.PerspectiveCamera(60, aspect, 0.1, 999999999)
   camera.position.set(0, 1.6, 0) // 相机在场景中心，等待模型加载后会调整到房间内部
   scene.add(camera)
 }
@@ -827,11 +826,6 @@ async function loadBaseScene() {
     const center = bbox.getCenter(new THREE.Vector3())
     const size = bbox.getSize(new THREE.Vector3())
 
-    // 创建可视化边界框（调试用，可以设置为不可见）
-    sceneBoundaryBox = new THREE.Box3Helper(bbox, 0x00ff00)
-    sceneBoundaryBox.visible = true // 默认不显示边界框
-    scene.add(sceneBoundaryBox)
-
     // 创建不可见的碰撞边界
     const boundaryGeometry = new THREE.BoxGeometry(size.x * 1.1, size.y * 1.1, size.z * 1.1)
     const boundaryMaterial = new THREE.MeshBasicMaterial({
@@ -849,15 +843,21 @@ async function loadBaseScene() {
     controls.target.set(center.x, center.y + 1.6, center.z - 2) // 看向前方
     controls.update()
 
-    // TODO: 设置边界
-    // if (vrManager) {
-    //   vrManager.setBoundary({
-    //     minX: bbox.min.x,
-    //     maxX: bbox.max.x,
-    //     minZ: bbox.min.z,
-    //     maxZ: bbox.max.z
-    //   })
-    // }
+    // 设置边界
+    if (vrManager) {
+      // 缩小边界范围 10%
+      const sizeX = size.x;
+      const sizeZ = size.z;
+      const marginX = sizeX * 0.1;
+      const marginZ = sizeZ * 0.1;
+      
+      vrManager.setBoundary({
+        minX: bbox.min.x + marginX,
+        maxX: bbox.max.x - marginX,
+        minZ: bbox.min.z + marginZ,
+        maxZ: bbox.max.z - marginZ
+      })
+    }
 
   } catch (error) {
     console.error('加载基础场景失败:', error)

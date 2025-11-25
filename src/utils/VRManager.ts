@@ -28,7 +28,7 @@ interface GamepadState {
   touchpadY: number;
 }
 
-// 游戏逻辑回调接口
+  // 游戏逻辑回调接口
 interface GameLogicCallbacks {
   handleSelectStart?: (position: THREE.Vector3, direction: THREE.Vector3, hand: string) => void;
   handleSelectEnd?: (hand: string) => void;
@@ -36,6 +36,14 @@ interface GameLogicCallbacks {
   handleGrabEnd?: (hand: string, controller?: THREE.Group, grabbedObject?: THREE.Object3D | null) => void;
   handleJump?: () => void;
   handleMove?: (delta: THREE.Vector2) => void;
+}
+
+// VR 边界接口
+interface VRBoundary {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
 }
 
 // VR管理器配置接口
@@ -70,6 +78,7 @@ export class VRManager {
   private caeModelCenter: THREE.Vector3;
   private caeViewDistance: number;
   private playerHeight: number;
+  private boundary: VRBoundary | null = null;
 
   // VR相关变量
   private vrPlayerRig: THREE.Group;
@@ -79,8 +88,6 @@ export class VRManager {
   private prevButtonStates: Map<string, boolean[]> = new Map();
   
   // 游戏逻辑变量
-  private grabbedObject: THREE.Object3D | null = null;
-  private grabHand: 'vr-left' | 'vr-right' | 'desktop' | null = null;
   private verticalVelocity = 0;
   private readonly gravity = -0.008;
   private readonly jumpStrength = 0.15;
@@ -208,7 +215,7 @@ export class VRManager {
     controller.addEventListener('squeezeend', () => {
       this.handleVRSqueezeEnd(controller, index);
     });
-
+    
     return { controller, controllerGrip, line };
   }
 
@@ -264,16 +271,16 @@ export class VRManager {
     this.handleSelectEnd(`vr-${hand}`);
   }
 
-  private handleVRSqueezeStart(controller: THREE.Group, index: number): void {
-    const hand = index === 0 ? 'left' : 'right';
-    const pos = new THREE.Vector3().setFromMatrixPosition(controller.matrixWorld);
-    const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(controller.quaternion);
-    this.handleGrabStart(pos, dir, hand as 'left' | 'right', controller);
+  private handleVRSqueezeStart(_controller: THREE.Group, _index: number): void {
+    // const hand = index === 0 ? 'left' : 'right';
+    // const pos = new THREE.Vector3().setFromMatrixPosition(controller.matrixWorld);
+    // const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(controller.quaternion);
+    // this.handleGrabStart(pos, dir, hand as 'left' | 'right', controller);
   }
 
-  private handleVRSqueezeEnd(controller: THREE.Group, index: number): void {
-    const hand = index === 0 ? 'left' : 'right';
-    this.handleGrabEnd(hand, controller);
+  private handleVRSqueezeEnd(_controller: THREE.Group, _index: number): void {
+    // const hand = index === 0 ? 'left' : 'right';
+    // this.handleGrabEnd(hand, controller);
   }
 
   // 游戏逻辑处理
@@ -306,60 +313,6 @@ export class VRManager {
     this.log(`[${hand}] 选择结束`);
   }
 
-  private handleGrabStart(position: THREE.Vector3, direction: THREE.Vector3, hand: 'left' | 'right', controller?: THREE.Group): void {
-    this.log(`[${hand}] 抓取开始`);
-    
-    const raycaster = new THREE.Raycaster(position, direction);
-    
-    // 先检查测试物体
-    if (this.testObjects) {
-      const intersections = raycaster.intersectObjects(this.testObjects, false);
-      if (intersections.length > 0 && intersections[0]?.object) {
-        this.grabbedObject = intersections[0].object;
-        this.grabHand = controller ? `vr-${hand}` : 'desktop';
-        this.log(`已抓取: ${this.grabbedObject.name || this.grabbedObject.type}`);
-        
-        if (controller) {
-          controller.attach(this.grabbedObject);
-        }
-        return;
-      }
-    }
-    
-    // 再检查 CAE 模型
-    if (this.mesh) {
-      const intersections = raycaster.intersectObject(this.mesh, true);
-      if (intersections.length > 0 && intersections[0]?.object) {
-        this.grabbedObject = intersections[0].object;
-        this.grabHand = controller ? `vr-${hand}` : 'desktop';
-        this.log(`已抓取: ${this.grabbedObject.name || this.grabbedObject.type}`);
-
-        if (controller) {
-          controller.attach(this.grabbedObject);
-        }
-      }
-    }
-  }
-
-  private handleGrabEnd(hand: string, controller?: THREE.Group): void {
-    this.log(`[${hand}] 抓取结束`);
-
-    if (this.grabbedObject) {
-      if (controller) {
-        const attachedObject = controller.children.find(
-          (child) => child.type === 'Mesh' && child.name !== 'line'
-        );
-        if (attachedObject) {
-          this.scene.attach(attachedObject as THREE.Object3D);
-        }
-      }
-
-      this.log('已释放物体');
-      this.grabbedObject = null;
-      this.grabHand = null;
-    }
-  }
-
   private handleMove(delta: THREE.Vector2): void {
     const speed = 0.05;
     const direction = new THREE.Vector3(0, 0, -1);
@@ -371,6 +324,12 @@ export class VRManager {
     const target = this.camera.parent || this.camera;
     target.position.addScaledVector(direction, -delta.y * speed);
     target.position.addScaledVector(strafe, delta.x * speed);
+
+    // 边界检查
+    if (this.boundary) {
+      target.position.x = Math.max(this.boundary.minX, Math.min(this.boundary.maxX, target.position.x));
+      target.position.z = Math.max(this.boundary.minZ, Math.min(this.boundary.maxZ, target.position.z));
+    }
   }
 
   private handleJump(): void {
@@ -530,7 +489,7 @@ export class VRManager {
 
         // 摇杆移动
         if (index === 1 || index === 0) {
-          const deadzone = 0.1;
+          const deadzone = 0.2;
           if (Math.abs(gamepad.thumbstickX) > deadzone || Math.abs(gamepad.thumbstickY) > deadzone) {
             this.handleMove(new THREE.Vector2(gamepad.thumbstickX, gamepad.thumbstickY));
           }
@@ -580,9 +539,10 @@ export class VRManager {
     }
   }
 
-  // 获取当前被抓取的对象
-  public getGrabbedObject(): THREE.Object3D | null {
-    return this.grabbedObject;
+  // 设置移动边界
+  public setBoundary(boundary: VRBoundary): void {
+    this.boundary = boundary;
+    this.log(`边界已设置: X[${boundary.minX.toFixed(1)}, ${boundary.maxX.toFixed(1)}], Z[${boundary.minZ.toFixed(1)}, ${boundary.maxZ.toFixed(1)}]`);
   }
 
   // 清理资源
