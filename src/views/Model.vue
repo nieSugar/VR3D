@@ -282,11 +282,73 @@ function setupCaeModelWatchers() {
   })
 
   watch(() => guiParams.modelName, () => {
+    // 清理切面网格（要在清理caePivot之前）
+    if (meshClip) {
+      if (meshClip.geometry) {
+        meshClip.geometry.dispose();
+      }
+      if (meshClip.material) {
+        if (Array.isArray(meshClip.material)) {
+          meshClip.material.forEach(m => m.dispose());
+        } else {
+          meshClip.material.dispose();
+        }
+      }
+      if (caePivot) {
+        caePivot.remove(meshClip);
+      } else {
+        scene.remove(meshClip);
+      }
+      meshClip = null;
+    }
+    
+    // 删除旧模型并清理资源
     if (caeMesh) {
+      // 清理几何体和材质
+      if (caeMesh.geometry) {
+        caeMesh.geometry.dispose();
+      }
+      if (caeMesh.material) {
+        if (Array.isArray(caeMesh.material)) {
+          caeMesh.material.forEach(m => m.dispose());
+        } else {
+          caeMesh.material.dispose();
+        }
+      }
       scene.remove(caeMesh);
       caeMesh = null;
-      loadCAEModel();
     }
+    
+    // 清理 caePivot
+    if (caePivot) {
+      scene.remove(caePivot);
+      caePivot = null;
+    }
+    
+    // 重置剖切平面数据
+    guiParams.planeX.scope = 0;
+    guiParams.planeY.scope = 0;
+    guiParams.planeZ.scope = 0;
+    guiParams.planeX.plan = false;
+    guiParams.planeY.plan = false;
+    guiParams.planeZ.plan = false;
+    
+    // 重置planes constant值
+    if (planes[0]) planes[0].constant = 0;
+    if (planes[1]) planes[1].constant = 0;
+    if (planes[2]) planes[2].constant = 0;
+    
+    // 清空数据缓存
+    newTaskValues.length = 0;
+    guiParams.nodes = {};
+    guiParams.nownode = [];
+    guiParams.typenode = '';
+    guiParams.frame = '';
+    typeNodeOptions.value = [];
+    frameOptions.value = [];
+    
+    // 加载新模型
+    loadCAEModel();
   });
 }
 
