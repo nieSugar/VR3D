@@ -12,7 +12,7 @@ import { HDRLoader } from 'three/addons/loaders/HDRLoader.js';
 import CustomCheckbox from '../components/CustomCheckbox.vue'
 import CustomSelectV2, { type SelectOption } from '../components/CustomSelectV2.vue'
 import CustomSlider from '../components/CustomSlider.vue'
-import { Reflector } from 'three/examples/jsm/objects/Reflector.js'
+import { TransparentReflector } from '../utils/TransparentReflector'
 
 // -----------------------------------------------------------------------------
 // 类型定义
@@ -693,7 +693,7 @@ async function loadCAEModel() {
       positionAttr.needsUpdate = true
     }
 
-    // 重新计算包围盒（因为位置已改变）
+    // 重新计算包围盒
     geometry.computeBoundingBox()
 
     const colors = [];
@@ -817,10 +817,10 @@ async function loadBaseScene() {
         }
       }
     })
-    // floorPost();
 
     // 添加到场景
     scene.add(baseSceneModel)
+    floorPost();
 
     // 计算边界并创建边界框
     const bbox = new THREE.Box3().setFromObject(baseSceneModel)
@@ -1029,7 +1029,7 @@ function updateClippingPlaneRanges() {
     z: { min: minZ, max: maxZ }
   }
 
-  // 设置初始值（禁用裁剪） - 参考 oldModel
+  // 设置初始值（禁用裁剪）
   if (planes[0]) {
     guiParams.planeX.scope = maxX
     planes[0].constant = maxX
@@ -1614,9 +1614,6 @@ function getClipFrame(type: 'x' | 'y' | 'z') {
     }
 
     const point: [number, number, number] = [worldPoint.x, worldPoint.y, worldPoint.z]
-    console.log('世界坐标切面点:', type === 'x' ? planes[0]?.constant : type === 'y' ? planes[1]?.constant : planes[2]?.constant)
-    console.log('转换后的原始坐标切面点:', point)
-
     try {
       // 获取当前选中的帧 key
       const currentFrame = guiParams.frame || guiParams.nownode[0]?.key
@@ -1793,32 +1790,56 @@ function mapTaskData(taskvals: Array<{
 }
 
 function floorPost() {
-  const floor = baseSceneModel?.children.find(child => child.name === '地板');
-  if (!floor) return;
+  const floor = baseSceneModel?.children.find(child => child.name === '地板001');
+  if (!floor) {
+    console.warn('未找到地板001对象');
+    return;
+  }
+  
+  // 先强制更新世界矩阵
+  baseSceneModel!.updateMatrixWorld(true);
+  
+  const floorBBox = new THREE.Box3().setFromObject(floor);
+  const floorBBoxHelper = new THREE.Box3Helper(floorBBox, 0x00ff00);
+  scene.add(floorBBoxHelper);
+  
+  console.log('地板包围盒:', floorBBox);
+  console.log('地板大小:', floorBBox.getSize(new THREE.Vector3()));
+  
   const color = '#777777';
-  const opacity = 0.1;
-  const clipBias = 0.0001;
+  const opacity = 0.2;
+  const clipBias = 0.003;
 
-  const newgeo = floor.geometry.clone() as THREE.BufferGeometry;
-  newgeo.rotateX(Math.PI / 2)
-  const groundReflector = new Reflector(newgeo, {
+  // 获取地板的世界变换
+  const worldPos = new THREE.Vector3();
+  floor.getWorldPosition(worldPos);
+  const worldScale = new THREE.Vector3();
+  floor.getWorldScale(worldScale);
+  
+  // 克隆几何体并旋转
+  const newgeo = (floor as THREE.Mesh).geometry.clone() as THREE.BufferGeometry;
+  newgeo.rotateX(Math.PI / 2); // 先旋转几何体
+  
+  const groundReflector = new TransparentReflector(newgeo, {
     clipBias: clipBias,
     textureWidth: window.innerWidth * window.devicePixelRatio,
     textureHeight: window.innerHeight * window.devicePixelRatio,
     color: new THREE.Color(color).getHex(),
-    // opacity: opacity
+    opacity: opacity
   });
-
-  (groundReflector.material as THREE.MeshStandardMaterial).transparent = true
-  groundReflector.position.x = floor.position.x;
-  groundReflector.position.z = floor.position.z;
-  groundReflector.position.y = floor.position.y + 0.01;
-  groundReflector.scale.x = floor.scale.x;
-  groundReflector.scale.z = floor.scale.y;
-  groundReflector.scale.y = floor.scale.z;
+  
+  (groundReflector.material as THREE.ShaderMaterial).transparent = true;
+  
+  // 设置位置和缩放（使用世界坐标）
+  groundReflector.position.x = worldPos.x;
+  groundReflector.position.z = worldPos.z;
+  groundReflector.position.y = worldPos.y + 0.01;
+  groundReflector.scale.x = worldScale.x;
+  groundReflector.scale.z = worldScale.y;
+  groundReflector.scale.y = worldScale.z;
+  
   groundReflector.rotateX(-Math.PI / 2);
   scene.add(groundReflector);
-
 }
 
 
@@ -1835,7 +1856,7 @@ function registerLifecycleHooks() {
       camera,
       controls,
       framebufferScale: 1.5,
-      playerHeight: 2,
+      playerHeight: 1.5,
       mesh: caeMesh || undefined,
       testObjects: interactableObjects as THREE.Mesh[],
       caeModelCenter,
