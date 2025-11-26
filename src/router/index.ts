@@ -23,7 +23,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: "/model-viewer",
     name: "ModelViewer",
-    component: () => import("../views/Model.vue"),
+    component: () => import("../views/Model/index.vue"),
     meta: { title: "模型文件" },
   },
   {
@@ -31,7 +31,7 @@ const routes: RouteRecordRaw[] = [
     name: "OldModel",
     component: () => import("../views/oldModel.vue"),
     meta: { title: "旧模型" },
-  },,
+  },
   {
     path: "/new-model",
     name: "NewModel",
@@ -49,7 +49,7 @@ const routes: RouteRecordRaw[] = [
     name: "VRSandbox",
     component: () => import("../views/VRSandbox.vue"),
     meta: { title: "VR Sandbox" },
-  },,
+  },
   {
     path: "/digitalbacon-ui",
     name: "Digitalbacon-ui",

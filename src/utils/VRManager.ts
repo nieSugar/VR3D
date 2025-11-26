@@ -314,17 +314,43 @@ export class VRManager {
     this.log(`[${hand}] 选择结束`);
   }
 
-  private handleMove(delta: THREE.Vector2): void {
-    const speed = 0.05;
-    const direction = new THREE.Vector3(0, 0, -1);
-    direction.applyQuaternion(this.camera.quaternion);
+  private handleMove(delta: THREE.Vector2, controllerIndex: number = 0): void {
+    const speed = 0.15;
+    const direction = new THREE.Vector3();
+    
+    // 优先使用左手控制器的朝向（Controller-Directed，更直观）
+    const leftController = this.vrControllers[controllerIndex]?.controller;
+    if (leftController) {
+      // 获取控制器的前方方向（局部 -Z 轴在世界坐标中的方向）
+      direction.set(0, 0, -1);
+      leftController.getWorldDirection(direction);
+    } else {
+      // 回退到头部朝向
+      this.camera.getWorldDirection(direction);
+    }
+    
+    // 强制水平移动
     direction.y = 0;
+    
+    // 防止零向量（比如控制器正好垂直指向上/下）
+    if (direction.lengthSq() < 0.0001) {
+      // 使用相机朝向作为后备
+      this.camera.getWorldDirection(direction);
+      direction.y = 0;
+      if (direction.lengthSq() < 0.0001) {
+        direction.set(0, 0, -1);
+      }
+    }
+    
     direction.normalize();
 
+    // 右方向：在 XZ 平面上，direction 逆时针旋转 90° 得到左边，(-dz, dx) 实际是右边
     const strafe = new THREE.Vector3(-direction.z, 0, direction.x);
     const target = this.camera.parent || this.camera;
-    target.position.addScaledVector(direction, -delta.y * speed);
-    target.position.addScaledVector(strafe, delta.x * speed);
+    
+    // 向前推摇杆(Y=-1) → 向 direction 反方向移动（控制器指向的方向）
+    target.position.addScaledVector(direction, delta.y * speed);
+    target.position.addScaledVector(strafe, -delta.x * speed);
 
     // 边界检查
     if (this.boundary) {
@@ -488,11 +514,21 @@ export class VRManager {
         // 保存当前状态
         this.prevButtonStates.set(hand, gamepad.buttons.map(b => b.pressed));
 
-        // 摇杆移动
-        if ((index === 1 || index === 0) && this.isMovementEnabled) {
+        // 摇杆移动 - 左手摇杆移动，方向由左手控制器朝向决定
+        if (index === 0 && this.isMovementEnabled) {
           const deadzone = 0.2;
-          if (Math.abs(gamepad.thumbstickX) > deadzone || Math.abs(gamepad.thumbstickY) > deadzone) {
-            this.handleMove(new THREE.Vector2(gamepad.thumbstickX, gamepad.thumbstickY));
+          // 应用死区并归一化
+          let x = Math.abs(gamepad.thumbstickX) > deadzone ? gamepad.thumbstickX : 0;
+          let y = Math.abs(gamepad.thumbstickY) > deadzone ? gamepad.thumbstickY : 0;
+          
+          if (x !== 0 || y !== 0) {
+            const delta = new THREE.Vector2(x, y);
+            // 归一化防止对角线移动过快，但保留摇杆推动幅度
+            const length = delta.length();
+            if (length > 1) {
+              delta.divideScalar(length);
+            }
+            this.handleMove(delta, index);
           }
         }
       }
