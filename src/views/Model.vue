@@ -78,6 +78,8 @@ let maxval = 1
 let minval = 0
 
 const raycaster = new THREE.Raycaster()
+const vrControllerRaycaster = new THREE.Raycaster()
+const vrTempMatrix = new THREE.Matrix4()
 const mouse = new THREE.Vector2()
 let setValueTimeout: number
 const animationStepSeconds = 0.5 // 数据帧切换间隔（秒）
@@ -300,7 +302,7 @@ function setupCaeModelWatchers() {
       }
       meshClip = null;
     }
-    
+
     // 删除旧模型并清理资源
     if (caeMesh) {
       // 清理几何体和材质
@@ -317,13 +319,13 @@ function setupCaeModelWatchers() {
       scene.remove(caeMesh);
       caeMesh = null;
     }
-    
+
     // 清理 caePivot
     if (caePivot) {
       scene.remove(caePivot);
       caePivot = null;
     }
-    
+
     // 重置剖切平面数据
     guiParams.planeX.scope = 0;
     guiParams.planeY.scope = 0;
@@ -331,12 +333,12 @@ function setupCaeModelWatchers() {
     guiParams.planeX.plan = false;
     guiParams.planeY.plan = false;
     guiParams.planeZ.plan = false;
-    
+
     // 重置planes constant值
     if (planes[0]) planes[0].constant = 0;
     if (planes[1]) planes[1].constant = 0;
     if (planes[2]) planes[2].constant = 0;
-    
+
     // 清空数据缓存
     newTaskValues.length = 0;
     guiParams.nodes = {};
@@ -345,7 +347,7 @@ function setupCaeModelWatchers() {
     guiParams.frame = '';
     typeNodeOptions.value = [];
     frameOptions.value = [];
-    
+
     // 加载新模型
     loadCAEModel();
   });
@@ -850,7 +852,7 @@ async function loadBaseScene() {
       const sizeZ = size.z;
       const marginX = sizeX * 0.1;
       const marginZ = sizeZ * 0.1;
-      
+
       vrManager.setBoundary({
         minX: bbox.min.x + marginX,
         maxX: bbox.max.x - marginX,
@@ -957,14 +959,19 @@ function focusObj(target: THREE.Object3D) {
 function setupTypeNodeOptions() {
   // 构建类型列表和节点数据
   const types: SelectOption[] = []
+  console.log(newTaskValues, 'newTaskValues');
+
   newTaskValues.forEach(v => {
-    types.push({ value: v.name, label: v.name })
+    types.push({ value: v.name, label: v.name, nameKey: v.nameKey })
     if (!guiParams.nodes[v.name]) {
       guiParams.nodes[v.name] = v.value
     }
   })
 
   if (types.length === 0) return
+
+  console.log(types, 'types');
+
 
   typeNodeOptions.value = types
 
@@ -1421,6 +1428,61 @@ function animationLoop() {
     }
   }
 
+  // VR 手柄旋转模型逻辑 (新增)
+  let isRotatingModel = false;
+  if (renderer.xr.isPresenting && caeMesh && caePivot) {
+    const session = renderer.xr.getSession();
+    if (session) {
+      for (let i = 0; i < session.inputSources.length; i++) {
+        const inputSource = session.inputSources[i];
+        // 找到对应的 controller group
+        // inputSource.targetRayMode === 'tracked-pointer' 通常对应手柄
+        if (!inputSource || !inputSource.gamepad) continue;
+
+        // 这里的 controller 获取方式假设 index 对应 inputSources 的 index
+        // 更严谨的做法是匹配 inputSource.handedness
+        const controller = renderer.xr.getController(i);
+
+        if (controller) {
+          // 设置射线
+          vrTempMatrix.identity().extractRotation(controller.matrixWorld);
+          vrControllerRaycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+          vrControllerRaycaster.ray.direction.set(0, 0, -1).applyMatrix4(vrTempMatrix);
+
+          // 检测是否指向模型
+          // intersectObject 默认检测子对象，这里 caeMesh 是 Mesh，所以直接检测
+          const intersects = vrControllerRaycaster.intersectObject(caeMesh);
+
+          // 如果指向模型且按下扳机键 (Button 0: Trigger)
+          // 注意：不同设备映射可能不同，Standard gamepad mapping 中 0 是 Trigger
+          if (intersects.length > 0 && inputSource.gamepad.buttons[0]?.pressed) {
+            isRotatingModel = true;
+
+            const gamepad = inputSource.gamepad;
+            const deadzone = 0.2;
+
+            // 获取摇杆数据 (Standard XR Mapping: axes[2] = X, axes[3] = Y)
+            const x = gamepad.axes[2] || 0;
+            const y = gamepad.axes[3] || 0;
+
+            if (Math.abs(x) > deadzone || Math.abs(y) > deadzone) {
+              const rotSpeed = guiParams.rotation.speed * 1.0;
+
+              // 左右推摇杆 -> 绕Y轴旋转 (左右旋转)
+              caePivot.rotateY(x * delta * rotSpeed);
+
+              // 上下推摇杆 -> 绕X轴旋转 (上下旋转)
+              caePivot.rotateX(y * delta * rotSpeed);
+            }
+
+            // 只要有一个手柄在操作，就跳出循环
+            break;
+          }
+        }
+      }
+    }
+  }
+
   // 更新 OrbitControls
   if (controls.enabled) {
     controls.update()
@@ -1442,6 +1504,8 @@ function animationLoop() {
 
   // 更新 VR 状态
   if (vrManager) {
+    // 如果正在旋转模型，禁用移动
+    vrManager.isMovementEnabled = !isRotatingModel;
     vrManager.update()
   }
 
@@ -1617,12 +1681,12 @@ function getClipFrame(type: 'x' | 'y' | 'z') {
     try {
       // 获取当前选中的帧 key
       const currentFrame = guiParams.frame || guiParams.nownode[0]?.key
-
+      const nameKey = typeNodeOptions.value.find(t => t.value === guiParams.typenode)?.nameKey
       // 构建查询参数，Point 参数需要重复三次
       const searchParams = new URLSearchParams()
       // searchParams.append('path', clipPath || '')
       searchParams.append('path', guiParams.modelName || '')
-      searchParams.append('type', guiParams.typenode)
+      searchParams.append('type', nameKey || '')
       searchParams.append('frame', currentFrame || '')
       point.forEach(p => searchParams.append('Point', p.toString()))
       searchParams.append('xyz', xyz.toString())
@@ -1756,7 +1820,7 @@ function mapTaskData(taskvals: Array<{
       const newTask: Task = {};
       if (Object.prototype.hasOwnProperty.call(task.times, key)) {
         const val = task.times[key];
-        name = newTask.name = task.name || '';
+        name = newTask.name = task.name || task.key || '';
         unit = newTask.unit = task.unit || '';
         nameKey = newTask.nameKey = task.key || '';
         newTask.key = key;
@@ -1795,17 +1859,17 @@ function floorPost() {
     console.warn('未找到地板001对象');
     return;
   }
-  
+
   // 先强制更新世界矩阵
   baseSceneModel!.updateMatrixWorld(true);
-  
+
   const floorBBox = new THREE.Box3().setFromObject(floor);
   const floorBBoxHelper = new THREE.Box3Helper(floorBBox, 0x00ff00);
   scene.add(floorBBoxHelper);
-  
+
   console.log('地板包围盒:', floorBBox);
   console.log('地板大小:', floorBBox.getSize(new THREE.Vector3()));
-  
+
   const color = '#777777';
   const opacity = 0.2;
   const clipBias = 0.003;
@@ -1815,11 +1879,11 @@ function floorPost() {
   floor.getWorldPosition(worldPos);
   const worldScale = new THREE.Vector3();
   floor.getWorldScale(worldScale);
-  
+
   // 克隆几何体并旋转
   const newgeo = (floor as THREE.Mesh).geometry.clone() as THREE.BufferGeometry;
   newgeo.rotateX(Math.PI / 2); // 先旋转几何体
-  
+
   const groundReflector = new TransparentReflector(newgeo, {
     clipBias: clipBias,
     textureWidth: window.innerWidth * window.devicePixelRatio,
@@ -1827,9 +1891,9 @@ function floorPost() {
     color: new THREE.Color(color).getHex(),
     opacity: opacity
   });
-  
+
   (groundReflector.material as THREE.ShaderMaterial).transparent = true;
-  
+
   // 设置位置和缩放（使用世界坐标）
   groundReflector.position.x = worldPos.x;
   groundReflector.position.z = worldPos.z;
@@ -1837,7 +1901,7 @@ function floorPost() {
   groundReflector.scale.x = worldScale.x;
   groundReflector.scale.z = worldScale.y;
   groundReflector.scale.y = worldScale.z;
-  
+
   groundReflector.rotateX(-Math.PI / 2);
   scene.add(groundReflector);
 }

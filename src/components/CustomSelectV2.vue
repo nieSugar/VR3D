@@ -40,6 +40,7 @@ import { computed, ref, onMounted, onUnmounted, nextTick } from 'vue'
 export interface SelectOption {
   value: string
   label: string
+  [key: string]: string | undefined
 }
 
 interface Props {

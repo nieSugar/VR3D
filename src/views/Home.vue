@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
 
+import Model from './Model.vue'
+
 const router = useRouter()
 
 
@@ -11,7 +13,8 @@ const goToRouter = (path: string) => {
 </script>
 
 <template>
-  <div class="home">
+  <Model />
+  <!-- <div class="home">
     <div class="hero">
       <div class="features">
         <div class="feature-card" @click="goToRouter('/vr-scene')">
@@ -40,7 +43,7 @@ const goToRouter = (path: string) => {
         </div>
       </div>
     </div>
-  </div>
+  </div> -->
 </template>
 
 <style scoped>

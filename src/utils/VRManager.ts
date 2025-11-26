@@ -79,6 +79,7 @@ export class VRManager {
   private caeViewDistance: number;
   private playerHeight: number;
   private boundary: VRBoundary | null = null;
+  public isMovementEnabled: boolean = true; // 控制是否允许移动
 
   // VR相关变量
   private vrPlayerRig: THREE.Group;
@@ -488,7 +489,7 @@ export class VRManager {
         this.prevButtonStates.set(hand, gamepad.buttons.map(b => b.pressed));
 
         // 摇杆移动
-        if (index === 1 || index === 0) {
+        if ((index === 1 || index === 0) && this.isMovementEnabled) {
           const deadzone = 0.2;
           if (Math.abs(gamepad.thumbstickX) > deadzone || Math.abs(gamepad.thumbstickY) > deadzone) {
             this.handleMove(new THREE.Vector2(gamepad.thumbstickX, gamepad.thumbstickY));
