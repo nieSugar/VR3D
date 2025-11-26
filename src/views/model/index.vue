@@ -360,10 +360,10 @@ function initPlanes() {
   for (let i = 0; i < 3; i++) {
     const plane = planes[i];
     if (!plane) continue;
-    const planeHelper = new THREE.PlaneHelper(plane, 1, 0xe91e63);
-    planeHelper.visible = true;
-    planeHelpers.push(planeHelper);
-    scene.value?.add(planeHelper);
+    // const planeHelper = new THREE.PlaneHelper(plane, 1, 0xe91e63);
+    // planeHelper.visible = true;
+    // planeHelpers.push(planeHelper);
+    // scene.value?.add(planeHelper);
   }
 }
 
@@ -1188,8 +1188,8 @@ function floorPost() {
   scene.value?.add(floorBBoxHelper);
 
   const color = '#777777';
-  const opacity = 0.2;
-  const clipBias = 0.003;
+  const opacity = 0.1;
+  const clipBias = 0.0001;
 
   const worldPos = new THREE.Vector3();
   floor.getWorldPosition(worldPos);
