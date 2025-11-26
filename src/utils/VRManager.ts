@@ -90,8 +90,8 @@ export class VRManager {
   
   // 游戏逻辑变量
   private verticalVelocity = 0;
-  private readonly gravity = -0.008;
-  private readonly jumpStrength = 0.15;
+  private readonly gravity = -0.02;
+  private readonly jumpStrength = 0.25;
   private readonly groundLevel = 0;
 
   // 按键名称映射（Quest手柄）
