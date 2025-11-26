@@ -57,7 +57,6 @@ const caeMesh = shallowRef<THREE.Mesh | null>(null)
 const caePivot = shallowRef<THREE.Group | null>(null)
 const baseSceneModel = shallowRef<THREE.Group | null>(null)
 const meshClip = shallowRef<THREE.Mesh | null>(null)
-const planeObjects = shallowRef<THREE.Mesh[]>([])
 
 let domObserver: MutationObserver | null = null
 let controller1: THREE.Group | null = null
@@ -144,8 +143,8 @@ const planeRanges = ref({
 
 // GUI 显示状态
 const isVRMode = ref(false);
-const showGUI2D = ref(true); 
-const showGUI3D = ref(true); 
+const showGUI2D = ref(true);
+const showGUI3D = ref(true);
 
 // 运行时辅助状态
 const originalMaterials = new Map<THREE.Object3D, THREE.Material>();
@@ -352,37 +351,19 @@ function setupDataWatchers() {
 
 // 初始化逻辑
 function initPlanes() {
-    planes = [
+  planes = [
     new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0),
     new THREE.Plane(new THREE.Vector3(0, -1, 0), 0),
     new THREE.Plane(new THREE.Vector3(0, 0, -1), 0)
   ];
-  
-  planeObjects.value = [];
-  const planeGeom = new THREE.PlaneGeometry(4, 4);
+
   for (let i = 0; i < 3; i++) {
-    const poGroup = new THREE.Group();
     const plane = planes[i];
-    const planeMat = new THREE.MeshStandardMaterial({
-      color: 0xe91e63,
-      metalness: 0.1,
-      roughness: 0.75,
-      clippingPlanes: planes.filter(p => p !== plane),
-      stencilWrite: true,
-      stencilRef: 0,
-      stencilFunc: THREE.NotEqualStencilFunc,
-      stencilFail: THREE.ReplaceStencilOp,
-      stencilZFail: THREE.ReplaceStencilOp,
-      stencilZPass: THREE.ReplaceStencilOp
-    });
-    planeMat.visible = false;
-    const po = new THREE.Mesh(planeGeom, planeMat);
-    po.onAfterRender = function (renderer) {
-      renderer.clearStencil();
-    };
-    po.renderOrder = i + 1.1;
-    poGroup.add(po);
-    planeObjects.value.push(po);
+    if (!plane) continue;
+    const planeHelper = new THREE.PlaneHelper(plane, 1, 0xe91e63);
+    planeHelper.visible = true;
+    planeHelpers.push(planeHelper);
+    scene.value?.add(planeHelper);
   }
 }
 
@@ -634,9 +615,9 @@ async function loadBaseScene() {
     scene.value?.add(boundaryMesh)
 
     if (camera.value && controls.value) {
-        camera.value.position.set(center.x, center.y + 1.6, center.z)
-        controls.value.target.set(center.x, center.y + 1.6, center.z - 2)
-        controls.value.update()
+      camera.value.position.set(center.x, center.y + 1.6, center.z)
+      controls.value.target.set(center.x, center.y + 1.6, center.z - 2)
+      controls.value.update()
     }
 
     if (vrManager.value) {
@@ -768,12 +749,6 @@ function updateClippingPlaneRanges() {
   bbox.getSize(size)
   const maxSize = Math.max(size.x, size.y, size.z) * 2
 
-  planeObjects.value.forEach((po) => {
-    const geometry = new THREE.PlaneGeometry(maxSize, maxSize)
-    po.geometry.dispose()
-    po.geometry = geometry
-  })
-
   planeHelpers.forEach((ph) => {
     ph.size = maxSize
   })
@@ -803,6 +778,7 @@ function updateClippingPlaneRanges() {
     guiParams.planeZ.scope = maxZ
     planes[2].constant = maxZ
   }
+  console.log(planes,'planes');
 }
 
 function updateColors() {
@@ -1030,19 +1006,6 @@ function onLoop(delta: number, _time: number) {
       vrManager.value.update()
     }
   }
-
-  for (let i = 0; i < planeObjects.value.length; i++) {
-    const plane = planes[i];
-    const po = planeObjects.value[i];
-    if (plane && po) {
-      plane.coplanarPoint(po.position);
-      po.lookAt(
-        po.position.x - plane.normal.x,
-        po.position.y - plane.normal.y,
-        po.position.z - plane.normal.z
-      );
-    }
-  }
 }
 
 function planeChange(type: 'x' | 'y' | 'z') {
@@ -1070,7 +1033,7 @@ function getClipFrame(type: 'x' | 'y' | 'z') {
 
     worldPoint.sub(caePivot.value!.position)
     worldPoint.sub(caeMesh.value!.position)
-    const scale = caeMesh.value!.scale.x 
+    const scale = caeMesh.value!.scale.x
     worldPoint.divideScalar(scale)
     worldPoint.y -= modelOffsetY
 
@@ -1105,7 +1068,7 @@ function getClipFrame(type: 'x' | 'y' | 'z') {
         roughness: 0,
         vertexColors: true,
       });
-      
+
       mat.onBeforeCompile = shader => {
         shader.fragmentShader = shader.fragmentShader.replace(
           'gl_FragColor = vec4( outgoingLight, diffuseColor.a );',
@@ -1259,10 +1222,10 @@ function floorPost() {
 
 onMounted(async () => {
   if (!container.value) return
-  
+
   // 初始化 Planes
   initPlanes()
-  
+
   // 初始化 VR 交互
   initVRInteraction()
 
@@ -1308,7 +1271,7 @@ onMounted(async () => {
 
   await preloadSceneAssets();
   initMouseValueDisplay();
-  
+
   // 注册动画循环回调
   addLoopCallback(onLoop)
 })
@@ -1353,14 +1316,6 @@ onUnmounted(() => {
   if (vrManager.value) vrManager.value.dispose()
 })
 
-// Options passed to SettingsPanel
-const panelOptions = {
-  modelNameOptions,
-  typeNodeOptions, // Ref, unwrapped automatically in template
-  frameOptions, // Ref
-  colorMapOptions,
-  planeRanges // Ref
-}
 </script>
 
 <template>
@@ -1369,16 +1324,13 @@ const panelOptions = {
 
     <div v-show="showGUI2D && !isVRMode" class="desktop-ui">
       <div class="gui-panel">
-        <SettingsPanel 
-          :params="guiParams" 
-          :options="{
-            modelNameOptions,
-            typeNodeOptions,
-            frameOptions,
-            colorMapOptions,
-            planeRanges
-          }" 
-        />
+        <SettingsPanel :params="guiParams" :options="{
+          modelNameOptions,
+          typeNodeOptions,
+          frameOptions,
+          colorMapOptions,
+          planeRanges
+        }" />
       </div>
 
       <div class="lut-panel-2d">
@@ -1392,16 +1344,13 @@ const panelOptions = {
     <!-- VR 模式使用的 3D GUI HTMLMesh -->
     <div v-show="showGUI3D" class="vr-overlays">
       <div ref="guiPanelRef" class="gui-panel-3d">
-         <SettingsPanel 
-          :params="guiParams" 
-          :options="{
-            modelNameOptions,
-            typeNodeOptions,
-            frameOptions,
-            colorMapOptions,
-            planeRanges
-          }" 
-        />
+        <SettingsPanel :params="guiParams" :options="{
+          modelNameOptions,
+          typeNodeOptions,
+          frameOptions,
+          colorMapOptions,
+          planeRanges
+        }" />
       </div>
 
       <!-- LUT 颜色条和数值显示 (3D HTMLMesh) -->
@@ -1555,4 +1504,3 @@ const panelOptions = {
   background: rgba(78, 205, 196, 0.6);
 }
 </style>
-
