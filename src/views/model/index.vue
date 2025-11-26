@@ -76,8 +76,6 @@ let maxval = 1
 let minval = 0
 
 const raycaster = new THREE.Raycaster()
-const vrControllerRaycaster = new THREE.Raycaster()
-const vrTempMatrix = new THREE.Matrix4()
 const mouse = new THREE.Vector2()
 let setValueTimeout: number
 const animationStepSeconds = 0.5 // 数据帧切换间隔（秒）
@@ -968,43 +966,8 @@ function onLoop(delta: number, _time: number) {
     if (guiParams.rotation.leftRight) caePivot.value.rotateY(delta * guiParams.rotation.speed * 0.5)
   }
 
-  // VR 手柄旋转
-  if (renderer.value && renderer.value.xr.isPresenting && caeMesh.value && caePivot.value) {
-    let isRotatingModel = false;
-    const session = renderer.value.xr.getSession();
-    if (session) {
-      for (let i = 0; i < session.inputSources.length; i++) {
-        const inputSource = session.inputSources[i];
-        if (!inputSource || !inputSource.gamepad) continue;
-
-        const controller = renderer.value.xr.getController(i);
-        if (controller) {
-          vrTempMatrix.identity().extractRotation(controller.matrixWorld);
-          vrControllerRaycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
-          vrControllerRaycaster.ray.direction.set(0, 0, -1).applyMatrix4(vrTempMatrix);
-
-          const intersects = vrControllerRaycaster.intersectObject(caeMesh.value);
-          if (intersects.length > 0 && inputSource.gamepad.buttons[0]?.pressed) {
-            isRotatingModel = true;
-            const gamepad = inputSource.gamepad;
-            const deadzone = 0.2;
-            const x = gamepad.axes[2] || 0;
-            const y = gamepad.axes[3] || 0;
-
-            if (Math.abs(x) > deadzone || Math.abs(y) > deadzone) {
-              const rotSpeed = guiParams.rotation.speed * 1.0;
-              caePivot.value.rotateY(x * delta * rotSpeed);
-              caePivot.value.rotateX(y * delta * rotSpeed);
-            }
-            break;
-          }
-        }
-      }
-    }
-    if (vrManager.value) {
-      vrManager.value.isMovementEnabled = !isRotatingModel;
-      vrManager.value.update()
-    }
+  if (vrManager.value) {
+    vrManager.value.update()
   }
 }
 
