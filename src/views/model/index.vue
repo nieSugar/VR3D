@@ -1259,40 +1259,11 @@ function floorPost() {
 
 onMounted(async () => {
   if (!container.value) return
-  // initSceneAndLight() // handled by useThreeBase init() via onMounted inside composable
-  // BUT we need to wait for useThreeBase to be ready if we want to use scene/renderer immediately
-  // useThreeBase onMounted runs in sync with this onMounted (order depends on call order, usually setup top-down)
-  // Since we call useThreeBase at top of setup, its onMounted is registered.
-  // However, to be safe, we can assume variables are reactive.
-  
-  // wait for next tick or just execute, scene.value is populated in useThreeBase's onMounted?
-  // No, useThreeBase calls init() in onMounted.
-  // So here in onMounted, scene.value might be undefined initially if we access it synchronously?
-  // Actually, vue runs onMounted hooks in child->parent order or similar.
-  // But here useThreeBase is a composable called in setup. Its onMounted is registered in current component scope.
-  // They run in registration order. useThreeBase is called first. So its onMounted runs first.
-  
-  // So scene.value should be available. But let's add a check or nextTick.
-  // Better yet, useThreeBase exposes the refs, init fills them.
   
   // 初始化 Planes
   initPlanes()
   
   // 初始化 VR 交互
-  // initVRInteraction() // requires renderer
-  
-  // We need to make sure initRenderPipeline logic is mostly covered by useThreeBase
-  // useThreeBase inits scene, camera, renderer, controls.
-  // We need to add lights and planes.
-  // Planes added by initPlanes.
-  // Lights? BaseSceneModel seems to rely on environment map mostly?
-  // Original code: "const ambientLight..." commented out.
-  // So mostly HDR.
-
-  // Wait for renderer to be ready
-  // useThreeBase init is called onMounted.
-  // So we should be good.
-  
   initVRInteraction()
 
   vrManager.value = new VRManager({
