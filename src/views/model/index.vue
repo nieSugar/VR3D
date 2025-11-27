@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, reactive, ref, watch, shallowRef } from 'vue'
+import { onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { VRManager } from '../../utils/VRManager'
@@ -52,16 +52,16 @@ const loadingText = ref('加载中...') // Loading 文本
 // -----------------------------------------------------------------------------
 const { scene, camera, renderer, controls, addLoopCallback, removeLoopCallback } = useThreeBase(container)
 
-// 其他 Three.js 对象 (使用 shallowRef 避免深度响应式)
-const vrManager = shallowRef<VRManager | null>(null)
-const interactiveGroup = shallowRef<InteractiveGroup | null>(null)
-const guiMesh = shallowRef<HTMLMesh | null>(null)
-const lutMesh = shallowRef<HTMLMesh | null>(null)
-const loadingMesh = shallowRef<HTMLMesh | null>(null) // VR Loading面板
-const caeMesh = shallowRef<THREE.Mesh | null>(null)
-const caePivot = shallowRef<THREE.Group | null>(null)
-const baseSceneModel = shallowRef<THREE.Group | null>(null)
-const meshClip = shallowRef<THREE.Mesh | null>(null)
+// 其他 Three.js 对象 (普通变量，不需要响应式)
+let vrManager: VRManager | null = null
+let interactiveGroup: InteractiveGroup | null = null
+let guiMesh: HTMLMesh | null = null
+let lutMesh: HTMLMesh | null = null
+let loadingMesh: HTMLMesh | null = null // VR Loading面板
+let caeMesh: THREE.Mesh | null = null
+let caePivot: THREE.Group | null = null
+let baseSceneModel: THREE.Group | null = null
+let meshClip: THREE.Mesh | null = null
 
 let domObserver: MutationObserver | null = null
 let controller1: THREE.Group | null = null
@@ -194,32 +194,32 @@ setupLoadingWatcher()
 // Watchers
 function setupCaeModelWatchers() {
   watch(() => guiParams.caeModel.visible, (value: boolean) => {
-    if (caeMesh.value) caeMesh.value.visible = value
+    if (caeMesh) caeMesh.visible = value
   })
 
   watch(() => guiParams.caeModel.wireframe, (value: boolean) => {
-    if (caeMesh.value && caeMesh.value.material) {
-      (caeMesh.value.material as THREE.MeshStandardMaterial).wireframe = value
+    if (caeMesh && caeMesh.material) {
+      (caeMesh.material as THREE.MeshStandardMaterial).wireframe = value
     }
   })
 
   watch(() => guiParams.caeModel.opacity, (value: number) => {
-    if (caeMesh.value && caeMesh.value.material) {
-      const material = caeMesh.value.material as THREE.MeshStandardMaterial
+    if (caeMesh && caeMesh.material) {
+      const material = caeMesh.material as THREE.MeshStandardMaterial
       material.opacity = value
       material.transparent = value < 1
     }
   })
 
   watch(() => guiParams.caeModel.metalness, (value: number) => {
-    if (caeMesh.value && caeMesh.value.material) {
-      (caeMesh.value.material as THREE.MeshStandardMaterial).metalness = value
+    if (caeMesh && caeMesh.material) {
+      (caeMesh.material as THREE.MeshStandardMaterial).metalness = value
     }
   })
 
   watch(() => guiParams.caeModel.roughness, (value: number) => {
-    if (caeMesh.value && caeMesh.value.material) {
-      (caeMesh.value.material as THREE.MeshStandardMaterial).roughness = value
+    if (caeMesh && caeMesh.material) {
+      (caeMesh.material as THREE.MeshStandardMaterial).roughness = value
     }
   })
 
@@ -234,31 +234,31 @@ function setupCaeModelWatchers() {
     loadingProgress.value = 20;
     
     // 清理切面网格
-    if (meshClip.value) {
-      if (meshClip.value.geometry) meshClip.value.geometry.dispose();
-      if (meshClip.value.material) {
-        if (Array.isArray(meshClip.value.material)) meshClip.value.material.forEach(m => m.dispose());
-        else meshClip.value.material.dispose();
+    if (meshClip) {
+      if (meshClip.geometry) meshClip.geometry.dispose();
+      if (meshClip.material) {
+        if (Array.isArray(meshClip.material)) meshClip.material.forEach(m => m.dispose());
+        else meshClip.material.dispose();
       }
-      if (caePivot.value) caePivot.value.remove(meshClip.value);
-      else scene.value?.remove(meshClip.value);
-      meshClip.value = null;
+      if (caePivot) caePivot.remove(meshClip);
+      else scene.value?.remove(meshClip);
+      meshClip = null;
     }
 
     // 删除旧模型并清理资源
-    if (caeMesh.value) {
-      if (caeMesh.value.geometry) caeMesh.value.geometry.dispose();
-      if (caeMesh.value.material) {
-        if (Array.isArray(caeMesh.value.material)) caeMesh.value.material.forEach(m => m.dispose());
-        else caeMesh.value.material.dispose();
+    if (caeMesh) {
+      if (caeMesh.geometry) caeMesh.geometry.dispose();
+      if (caeMesh.material) {
+        if (Array.isArray(caeMesh.material)) caeMesh.material.forEach(m => m.dispose());
+        else caeMesh.material.dispose();
       }
-      scene.value?.remove(caeMesh.value);
-      caeMesh.value = null;
+      scene.value?.remove(caeMesh);
+      caeMesh = null;
     }
 
-    if (caePivot.value) {
-      scene.value?.remove(caePivot.value);
-      caePivot.value = null;
+    if (caePivot) {
+      scene.value?.remove(caePivot);
+      caePivot = null;
     }
 
     loadingProgress.value = 50;
@@ -376,19 +376,19 @@ function setupDataWatchers() {
 function setupLoadingWatcher() {
   // 监听loading状态，控制VR中的loading mesh显示/隐藏
   watch(() => isLoading.value, (loading) => {
-    if (loadingMesh.value) {
-      loadingMesh.value.visible = loading;
+    if (loadingMesh) {
+      loadingMesh.visible = loading;
       // 更新loading mesh材质贴图
-      if (loadingMesh.value.material && loadingMesh.value.material.map) {
-        loadingMesh.value.material.map.needsUpdate = true;
+      if (loadingMesh.material && loadingMesh.material.map) {
+        loadingMesh.material.map.needsUpdate = true;
       }
     }
   })
   
   // 监听loading进度和文本变化，更新VR loading mesh
   watch([() => loadingProgress.value, () => loadingText.value], () => {
-    if (loadingMesh.value && loadingMesh.value.material && loadingMesh.value.material.map) {
-      loadingMesh.value.material.map.needsUpdate = true;
+    if (loadingMesh && loadingMesh.material && loadingMesh.material.map) {
+      loadingMesh.material.map.needsUpdate = true;
     }
   })
 }
@@ -416,9 +416,9 @@ function initVRInteraction() {
   if (!renderer.value || !camera.value || !scene.value) return
 
   // 创建交互组
-  interactiveGroup.value = new InteractiveGroup()
-  interactiveGroup.value.listenToPointerEvents(renderer.value, camera.value)
-  scene.value.add(interactiveGroup.value)
+  interactiveGroup = new InteractiveGroup()
+  interactiveGroup.listenToPointerEvents(renderer.value, camera.value)
+  scene.value.add(interactiveGroup)
 
   // 创建 VR 控制器
   const geometry = new THREE.BufferGeometry()
@@ -434,8 +434,8 @@ function initVRInteraction() {
   scene.value.add(controller2)
 
   // 为交互组添加控制器监听
-  interactiveGroup.value.listenToXRControllerEvents(controller1 as any)
-  interactiveGroup.value.listenToXRControllerEvents(controller2 as any)
+  interactiveGroup.listenToXRControllerEvents(controller1 as any)
+  interactiveGroup.listenToXRControllerEvents(controller2 as any)
 
   // 添加控制器模型
   const controllerModelFactory = new XRControllerModelFactory()
@@ -450,19 +450,19 @@ function initVRInteraction() {
 
   // 创建 GUI HTMLMesh（延迟创建以确保DOM已准备好）
   setTimeout(() => {
-    if (guiPanelRef.value && interactiveGroup.value) {
-      guiMesh.value = new HTMLMesh(guiPanelRef.value)
+    if (guiPanelRef.value && interactiveGroup) {
+      guiMesh = new HTMLMesh(guiPanelRef.value)
       // 临时位置，等模型加载后会更新为相对于模型的位置
-      guiMesh.value.position.set(-1.0, 1.5, -2.0)
-      guiMesh.value.quaternion.identity()
-      guiMesh.value.scale.setScalar(2.5)
-      guiMesh.value.name = 'GUI_Mesh';
-      interactiveGroup.value.add(guiMesh.value)
+      guiMesh.position.set(-1.0, 1.5, -2.0)
+      guiMesh.quaternion.identity()
+      guiMesh.scale.setScalar(2.5)
+      guiMesh.name = 'GUI_Mesh';
+      interactiveGroup.add(guiMesh)
 
       // 设置 MutationObserver 监听 DOM 变化
       domObserver = new MutationObserver(() => {
-        if (guiMesh.value && guiMesh.value.material && guiMesh.value.material.map) {
-          guiMesh.value.material.map.needsUpdate = true
+        if (guiMesh && guiMesh.material && guiMesh.material.map) {
+          guiMesh.material.map.needsUpdate = true
         }
       })
 
@@ -473,25 +473,25 @@ function initVRInteraction() {
         characterData: true
       })
     }
-    if (lutBodyRef.value && interactiveGroup.value) {
-      lutMesh.value = new HTMLMesh(lutBodyRef.value);
+    if (lutBodyRef.value && interactiveGroup) {
+      lutMesh = new HTMLMesh(lutBodyRef.value);
       // 临时位置，等模型加载后会更新为相对于模型的位置
-      lutMesh.value.position.set(-3.0, 1.5, -2.0);
-      lutMesh.value.quaternion.identity();
-      lutMesh.value.scale.setScalar(3);
-      lutMesh.value.name = 'LUT_Mesh';
-      interactiveGroup.value.add(lutMesh.value)
+      lutMesh.position.set(-3.0, 1.5, -2.0);
+      lutMesh.quaternion.identity();
+      lutMesh.scale.setScalar(3);
+      lutMesh.name = 'LUT_Mesh';
+      interactiveGroup.add(lutMesh)
     }
     
     // 创建 VR Loading HTMLMesh
-    if (loadingPanelRef.value && interactiveGroup.value) {
-      loadingMesh.value = new HTMLMesh(loadingPanelRef.value);
-      loadingMesh.value.position.set(0, 1.6, -1.5);
-      loadingMesh.value.quaternion.identity();
-      loadingMesh.value.scale.setScalar(2);
-      loadingMesh.value.name = 'Loading_Mesh';
-      loadingMesh.value.visible = false; // 默认隐藏
-      interactiveGroup.value.add(loadingMesh.value);
+    if (loadingPanelRef.value && interactiveGroup) {
+      loadingMesh = new HTMLMesh(loadingPanelRef.value);
+      loadingMesh.position.set(0, 1.6, -1.5);
+      loadingMesh.quaternion.identity();
+      loadingMesh.scale.setScalar(2);
+      loadingMesh.name = 'Loading_Mesh';
+      loadingMesh.visible = false; // 默认隐藏
+      interactiveGroup.add(loadingMesh);
     }
   }, 100)
 }
@@ -499,25 +499,25 @@ function initVRInteraction() {
 
 // 更新面板位置
 function updateVRUIPanels() {
-  if (!caePivot.value || !caeModelCenter) return
-  if (!guiMesh.value && !lutMesh.value) return
+  if (!caePivot || !caeModelCenter) return
+  if (!guiMesh && !lutMesh) return
 
-  if (guiMesh.value) {
-    guiMesh.value.position.set(
+  if (guiMesh) {
+    guiMesh.position.set(
       caeModelCenter.x - 3,
       caeModelCenter.y,
       caeModelCenter.z
     )
-    guiMesh.value.quaternion.identity()
+    guiMesh.quaternion.identity()
   }
 
-  if (lutMesh.value) {
-    lutMesh.value.position.set(
+  if (lutMesh) {
+    lutMesh.position.set(
       caeModelCenter.x + 3,
       caeModelCenter.y - 0.5,
       caeModelCenter.z
     )
-    lutMesh.value.quaternion.identity()
+    lutMesh.quaternion.identity()
   }
 }
 
@@ -604,13 +604,13 @@ async function loadCAEModel() {
       clippingPlanes: planes,
     })
 
-    caeMesh.value = new THREE.Mesh(geometry, material)
-    caeMesh.value.castShadow = true
-    caeMesh.value.receiveShadow = true
-    caeMesh.value.name = 'CAE_Model'
+    caeMesh = new THREE.Mesh(geometry, material)
+    caeMesh.castShadow = true
+    caeMesh.receiveShadow = true
+    caeMesh.name = 'CAE_Model'
 
-    scene.value?.add(caeMesh.value)
-    interactableObjects.push(caeMesh.value)
+    scene.value?.add(caeMesh)
+    interactableObjects.push(caeMesh)
     alignCaeModelToBaseScene()
 
     const pressureArray = data[0]?.val || []
@@ -620,8 +620,8 @@ async function loadCAEModel() {
     updateColors()
     updateLutDisplay()
 
-    if (caePivot.value) focusObj(caePivot.value)
-    else focusObj(caeMesh.value!)
+    if (caePivot) focusObj(caePivot)
+    else focusObj(caeMesh!)
 
     updateClippingPlaneRanges()
     setupTypeNodeOptions()
@@ -660,12 +660,12 @@ async function loadBaseScene() {
     const loader = new GLTFLoader()
     const gltf = await loader.loadAsync('/assets/models/tjdx.glb')
 
-    baseSceneModel.value = gltf.scene;
-    baseSceneModel.value.name = 'Base-Scene';
-    baseSceneModel.value.scale.set(2, 2, 2)
-    baseSceneModel.value.position.set(0, 0, 0)
+    baseSceneModel = gltf.scene;
+    baseSceneModel.name = 'Base-Scene';
+    baseSceneModel.scale.set(2, 2, 2)
+    baseSceneModel.position.set(0, 0, 0)
 
-    baseSceneModel.value.traverse((child) => {
+    baseSceneModel.traverse((child) => {
       if (child instanceof THREE.Mesh) {
         child.castShadow = true
         child.receiveShadow = true
@@ -676,10 +676,10 @@ async function loadBaseScene() {
       }
     })
 
-    scene.value?.add(baseSceneModel.value)
+    scene.value?.add(baseSceneModel)
     floorPost();
 
-    const bbox = new THREE.Box3().setFromObject(baseSceneModel.value)
+    const bbox = new THREE.Box3().setFromObject(baseSceneModel)
     const center = bbox.getCenter(new THREE.Vector3())
     const size = bbox.getSize(new THREE.Vector3())
 
@@ -696,13 +696,13 @@ async function loadBaseScene() {
       controls.value.update()
     }
 
-    if (vrManager.value) {
+    if (vrManager) {
       const sizeX = size.x;
       const sizeZ = size.z;
       const marginX = sizeX * 0.1;
       const marginZ = sizeZ * 0.1;
 
-      vrManager.value.setBoundary({
+      vrManager.setBoundary({
         minX: bbox.min.x + marginX,
         maxX: bbox.max.x - marginX,
         minZ: bbox.min.z + marginZ,
@@ -716,9 +716,9 @@ async function loadBaseScene() {
 }
 
 function alignCaeModelToBaseScene() {
-  if (!caeMesh.value || !scene.value) return
+  if (!caeMesh || !scene.value) return
 
-  const caeBox = new THREE.Box3().setFromObject(caeMesh.value)
+  const caeBox = new THREE.Box3().setFromObject(caeMesh)
   const targetSize = new THREE.Vector3(4, 4, 4)
   const caeSize = caeBox.getSize(new THREE.Vector3())
 
@@ -732,28 +732,28 @@ function alignCaeModelToBaseScene() {
   const scaleZ = targetSize.z / safeCaeSize.z
   const fitScale = Math.min(scaleX, scaleY, scaleZ)
   if (Number.isFinite(fitScale) && fitScale > 0) {
-    caeMesh.value.scale.setScalar(fitScale);
-    caeMesh.value.updateMatrixWorld(true)
+    caeMesh.scale.setScalar(fitScale);
+    caeMesh.updateMatrixWorld(true)
   }
 
-  caeMesh.value.updateMatrixWorld(true)
-  const scaledBox = new THREE.Box3().setFromObject(caeMesh.value)
+  caeMesh.updateMatrixWorld(true)
+  const scaledBox = new THREE.Box3().setFromObject(caeMesh)
   const scaledCenter = scaledBox.getCenter(new THREE.Vector3())
 
   const targetCenter = new THREE.Vector3(scaledCenter.x - 1.5, scaledCenter.y + 1.5, scaledCenter.z)
 
-  if (!caePivot.value) {
-    caePivot.value = new THREE.Group()
-    scene.value.add(caePivot.value)
+  if (!caePivot) {
+    caePivot = new THREE.Group()
+    scene.value.add(caePivot)
   }
-  caePivot.value.position.copy(targetCenter)
-  scene.value.remove(caeMesh.value)
+  caePivot.position.copy(targetCenter)
+  scene.value.remove(caeMesh)
 
-  const localOffset = caeMesh.value.position.clone().sub(scaledCenter)
-  caeMesh.value.position.copy(localOffset)
+  const localOffset = caeMesh.position.clone().sub(scaledCenter)
+  caeMesh.position.copy(localOffset)
 
-  caePivot.value.add(caeMesh.value)
-  caePivot.value.updateMatrixWorld(true)
+  caePivot.add(caeMesh)
+  caePivot.updateMatrixWorld(true)
 
   caeModelCenter.copy(targetCenter)
 }
@@ -819,8 +819,8 @@ function updateFrameOptions() {
 }
 
 function updateClippingPlaneRanges() {
-  if (!caeMesh.value) return
-  const bbox = new THREE.Box3().setFromObject(caeMesh.value)
+  if (!caeMesh) return
+  const bbox = new THREE.Box3().setFromObject(caeMesh)
   const size = new THREE.Vector3()
   bbox.getSize(size)
   const maxSize = Math.max(size.x, size.y, size.z) * 2
@@ -858,12 +858,12 @@ function updateClippingPlaneRanges() {
 }
 
 function updateColors() {
-  if (!caeMesh.value) return
+  if (!caeMesh) return
   lut.setColorMap(guiParams.caeModel.colorMap)
   lut.setMax(maxval)
   lut.setMin(minval)
 
-  const geometry = caeMesh.value.geometry
+  const geometry = caeMesh.geometry
   const pressures = geometry.attributes.pressure
   const colors = geometry.attributes.color
 
@@ -878,8 +878,8 @@ function updateColors() {
   }
   colors.needsUpdate = true
 
-  if (meshClip.value) {
-    const geometryClip = meshClip.value.geometry
+  if (meshClip) {
+    const geometryClip = meshClip.geometry
     const pressuresClip = geometryClip.attributes.pressure
     const colorsClip = geometryClip.attributes.color
     if (pressuresClip && colorsClip) {
@@ -946,8 +946,8 @@ function updateTimes() {
   newTaskValues.forEach(v => {
     if (v.name === guiParams.typenode) {
       const val = v.value.find(s => s.key === guiParams.frame);
-      if (val && val.val && caeMesh.value) {
-        const geometry = caeMesh.value.geometry as THREE.BufferGeometry
+      if (val && val.val && caeMesh) {
+        const geometry = caeMesh.geometry as THREE.BufferGeometry
         geometry.setAttribute('pressure', new THREE.Float32BufferAttribute(val.val, 1));
 
         const pressureArray = val.val;
@@ -985,7 +985,7 @@ function stopAnimation() {
 
 function initMouseValueDisplay() {
   window.addEventListener('mousemove', (event) => {
-    if (!caeMesh.value || guiParams.caeModel.opacity === 0 || !camera.value) {
+    if (!caeMesh || guiParams.caeModel.opacity === 0 || !camera.value) {
       showValuePopover.value = false
       return
     }
@@ -999,7 +999,7 @@ function initMouseValueDisplay() {
       mouseLocation.y = event.clientY + 20
 
       raycaster.setFromCamera(mouse, camera.value)
-      const intersects = raycaster.intersectObject(caeMesh.value!)
+      const intersects = raycaster.intersectObject(caeMesh!)
 
       if (intersects.length > 0 && intersects[0]) {
         const face = intersects[0].face
@@ -1039,21 +1039,21 @@ function onLoop(delta: number, _time: number) {
     }
   }
 
-  if (caePivot.value) {
-    if (guiParams.rotation.upDown) caePivot.value.rotateX(delta * guiParams.rotation.speed * 0.5)
-    if (guiParams.rotation.leftRight) caePivot.value.rotateY(delta * guiParams.rotation.speed * 0.5)
+  if (caePivot) {
+    if (guiParams.rotation.upDown) caePivot.rotateX(delta * guiParams.rotation.speed * 0.5)
+    if (guiParams.rotation.leftRight) caePivot.rotateY(delta * guiParams.rotation.speed * 0.5)
   }
 
-  if (vrManager.value) {
-    vrManager.value.update()
+  if (vrManager) {
+    vrManager.update()
   }
 }
 
 function planeChange(type: 'x' | 'y' | 'z') {
-  if (meshClip.value) {
-    if (caePivot.value) caePivot.value.remove(meshClip.value)
-    else scene.value?.remove(meshClip.value)
-    meshClip.value = null
+  if (meshClip) {
+    if (caePivot) caePivot.remove(meshClip)
+    else scene.value?.remove(meshClip)
+    meshClip = null
   }
   if (clipUrl) getClipFrame(type)
 }
@@ -1065,16 +1065,16 @@ function getClipFrame(type: 'x' | 'y' | 'z') {
   }
 
   getClipFrameTimeout = setTimeout(async () => {
-    if (!caeMesh.value || !caePivot.value) return
+    if (!caeMesh || !caePivot) return
 
     const worldPoint = new THREE.Vector3()
     if (type === 'x') worldPoint.set(planes[0]?.constant ?? 0, 0, 0)
     else if (type === 'y') worldPoint.set(0, planes[1]?.constant ?? 0, 0)
     else worldPoint.set(0, 0, planes[2]?.constant ?? 0)
 
-    worldPoint.sub(caePivot.value!.position)
-    worldPoint.sub(caeMesh.value!.position)
-    const scale = caeMesh.value!.scale.x
+    worldPoint.sub(caePivot!.position)
+    worldPoint.sub(caeMesh!.position)
+    const scale = caeMesh!.scale.x
     worldPoint.divideScalar(scale)
     worldPoint.y -= modelOffsetY
 
@@ -1097,10 +1097,10 @@ function getClipFrame(type: 'x' | 'y' | 'z') {
       const response = await fetch(`${clipUrl}?${searchParams.toString()}`)
       const data = await response.json()
 
-      if (meshClip.value) {
-        if (caePivot.value) caePivot.value.remove(meshClip.value)
-        else scene.value?.remove(meshClip.value)
-        meshClip.value = null
+      if (meshClip) {
+        if (caePivot) caePivot.remove(meshClip)
+        else scene.value?.remove(meshClip)
+        meshClip = null
       }
 
       const mat = new THREE.MeshStandardMaterial({
@@ -1121,9 +1121,9 @@ function getClipFrame(type: 'x' | 'y' | 'z') {
         )
       }
 
-      meshClip.value = new THREE.Mesh(undefined, mat)
-      meshClip.value.name = 'clipMesh'
-      meshClip.value.renderOrder = 0
+      meshClip = new THREE.Mesh(undefined, mat)
+      meshClip.name = 'clipMesh'
+      meshClip.renderOrder = 0
 
       const clipJsonStr = {
         metadata: { version: 4, type: 'BufferGeometry' },
@@ -1155,18 +1155,18 @@ function getClipFrame(type: 'x' | 'y' | 'z') {
       for (let i = 0; i < positionCount; i++) colors.push(1, 1, 1)
       geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3))
 
-      meshClip.value.geometry = geometry
-      if (meshClip.value.geometry) {
-        meshClip.value.geometry.computeBoundingSphere();
-        meshClip.value.geometry.computeVertexNormals()
+      meshClip.geometry = geometry
+      if (meshClip.geometry) {
+        meshClip.geometry.computeBoundingSphere();
+        meshClip.geometry.computeVertexNormals()
       }
 
-      if (caePivot.value && caeMesh.value) {
-        meshClip.value.position.copy(caeMesh.value.position)
-        meshClip.value.scale.copy(caeMesh.value.scale)
-        caePivot.value.add(meshClip.value)
+      if (caePivot && caeMesh) {
+        meshClip.position.copy(caeMesh.position)
+        meshClip.scale.copy(caeMesh.scale)
+        caePivot.add(meshClip)
       } else {
-        scene.value?.add(meshClip.value)
+        scene.value?.add(meshClip)
       }
       updateColors()
     } catch (error) {
@@ -1218,11 +1218,11 @@ function mapTaskData(taskvals: any[], newTaskValues: any[]) {
 }
 
 function floorPost() {
-  if (!baseSceneModel.value) return
-  const floor = baseSceneModel.value.children.find(child => child.name === '地板001');
+  if (!baseSceneModel) return
+  const floor = baseSceneModel.children.find(child => child.name === '地板001');
   if (!floor) return;
 
-  baseSceneModel.value.updateMatrixWorld(true);
+  baseSceneModel.updateMatrixWorld(true);
 
   const floorBBox = new THREE.Box3().setFromObject(floor);
   const floorBBoxHelper = new THREE.Box3Helper(floorBBox, 0x00ff00);
@@ -1270,14 +1270,14 @@ onMounted(async () => {
   // 初始化 VR 交互
   initVRInteraction()
 
-  vrManager.value = new VRManager({
+  vrManager = new VRManager({
     renderer: renderer.value!,
     scene: scene.value!,
     camera: camera.value!,
     controls: controls.value!,
     framebufferScale: 4,
     playerHeight: 1.5,
-    mesh: caeMesh.value || undefined,
+    mesh: caeMesh || undefined,
     testObjects: interactableObjects as THREE.Mesh[],
     caeModelCenter,
     caeViewDistance,
@@ -1285,30 +1285,30 @@ onMounted(async () => {
       isVRMode.value = true
       showGUI2D.value = false
       showGUI3D.value = true
-      if (guiMesh.value) {
-        guiMesh.value.visible = true
-        if (guiMesh.value.material.map) guiMesh.value.material.map.needsUpdate = true
+      if (guiMesh) {
+        guiMesh.visible = true
+        if (guiMesh.material.map) guiMesh.material.map.needsUpdate = true
       }
-      if (lutMesh.value) {
-        lutMesh.value.visible = true
-        if (lutMesh.value.material.map) lutMesh.value.material.map.needsUpdate = true
+      if (lutMesh) {
+        lutMesh.visible = true
+        if (lutMesh.material.map) lutMesh.material.map.needsUpdate = true
       }
     },
     onSessionEnd: () => {
       isVRMode.value = false
       showGUI2D.value = true
       showGUI3D.value = true
-      if (guiMesh.value) {
-        guiMesh.value.visible = true
-        if (guiMesh.value.material.map) guiMesh.value.material.map.needsUpdate = true
+      if (guiMesh) {
+        guiMesh.visible = true
+        if (guiMesh.material.map) guiMesh.material.map.needsUpdate = true
       }
-      if (lutMesh.value) {
-        lutMesh.value.visible = true
-        if (lutMesh.value.material.map) lutMesh.value.material.map.needsUpdate = true
+      if (lutMesh) {
+        lutMesh.visible = true
+        if (lutMesh.material.map) lutMesh.material.map.needsUpdate = true
       }
     }
   })
-  vrManager.value.init(container.value)
+  vrManager.init(container.value)
 
   await preloadSceneAssets();
   initMouseValueDisplay();
@@ -1323,29 +1323,29 @@ onUnmounted(() => {
     domObserver.disconnect()
     domObserver = null
   }
-  if (guiMesh.value) {
-    if (guiMesh.value.material.map) {
-      const img = guiMesh.value.material.map.image as HTMLElement
+  if (guiMesh) {
+    if (guiMesh.material.map) {
+      const img = guiMesh.material.map.image as HTMLElement
       if (img && img.parentElement) img.parentElement.remove()
     }
-    guiMesh.value.material.dispose()
-    guiMesh.value.geometry.dispose()
+    guiMesh.material.dispose()
+    guiMesh.geometry.dispose()
   }
-  if (lutMesh.value) {
-    if (lutMesh.value.material.map) {
-      const img = lutMesh.value.material.map.image as HTMLElement
+  if (lutMesh) {
+    if (lutMesh.material.map) {
+      const img = lutMesh.material.map.image as HTMLElement
       if (img && img.parentElement) img.parentElement.remove()
     }
-    lutMesh.value.material.dispose()
-    lutMesh.value.geometry.dispose()
+    lutMesh.material.dispose()
+    lutMesh.geometry.dispose()
   }
-  if (loadingMesh.value) {
-    if (loadingMesh.value.material.map) {
-      const img = loadingMesh.value.material.map.image as HTMLElement
+  if (loadingMesh) {
+    if (loadingMesh.material.map) {
+      const img = loadingMesh.material.map.image as HTMLElement
       if (img && img.parentElement) img.parentElement.remove()
     }
-    loadingMesh.value.material.dispose()
-    loadingMesh.value.geometry.dispose()
+    loadingMesh.material.dispose()
+    loadingMesh.geometry.dispose()
   }
   interactableObjects.forEach(obj => {
     const mesh = obj as THREE.Mesh
@@ -1357,12 +1357,12 @@ onUnmounted(() => {
     if (Array.isArray(material)) material.forEach(m => m.dispose())
     else material.dispose()
   })
-  if (caeMesh.value) {
-    caeMesh.value.geometry.dispose()
-    if (Array.isArray(caeMesh.value.material)) caeMesh.value.material.forEach(m => m.dispose())
-    else caeMesh.value.material.dispose()
+  if (caeMesh) {
+    caeMesh.geometry.dispose()
+    if (Array.isArray(caeMesh.material)) caeMesh.material.forEach(m => m.dispose())
+    else caeMesh.material.dispose()
   }
-  if (vrManager.value) vrManager.value.dispose()
+  if (vrManager) vrManager.dispose()
 })
 
 </script>
