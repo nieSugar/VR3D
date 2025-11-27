@@ -75,7 +75,8 @@ const clipUrl: string | undefined = '/api/Clip' // 切面数据请求 URL
 // const clipPath: string | undefined = ''
 
 let lut = new Lut()
-let planes: THREE.Plane[] = []
+let localPlanes: THREE.Plane[] = [] // 局部空间裁剪平面
+let newPlanes: THREE.Plane[] = [] // 世界空间裁剪平面
 let planeHelpers: THREE.PlaneHelper[] = []
 let maxval = 1
 let minval = 0
@@ -232,7 +233,7 @@ function setupCaeModelWatchers() {
     isLoading.value = true;
     loadingText.value = '切换模型中...';
     loadingProgress.value = 20;
-    
+
     // 清理切面网格
     if (meshClip) {
       if (meshClip.geometry) meshClip.geometry.dispose();
@@ -262,7 +263,7 @@ function setupCaeModelWatchers() {
     }
 
     loadingProgress.value = 50;
-    
+
     guiParams.planeX.scope = 0;
     guiParams.planeY.scope = 0;
     guiParams.planeZ.scope = 0;
@@ -270,9 +271,9 @@ function setupCaeModelWatchers() {
     guiParams.planeY.plan = false;
     guiParams.planeZ.plan = false;
 
-    if (planes[0]) planes[0].constant = 0;
-    if (planes[1]) planes[1].constant = 0;
-    if (planes[2]) planes[2].constant = 0;
+    if (localPlanes[0]) localPlanes[0].constant = newPlanes[0]!.constant = 0;
+    if (localPlanes[1]) localPlanes[1].constant = newPlanes[1]!.constant = 0;
+    if (localPlanes[2]) localPlanes[2].constant = newPlanes[2]!.constant = 0;
 
     newTaskValues.length = 0;
     guiParams.nodes = {};
@@ -284,11 +285,11 @@ function setupCaeModelWatchers() {
 
     loadingText.value = '加载新模型...';
     loadingProgress.value = 70;
-    
+
     try {
       await loadCAEModel();
       loadingProgress.value = 100;
-      
+
       setTimeout(() => {
         isLoading.value = false;
       }, 300);
@@ -310,7 +311,7 @@ function setupPlaneWatchers() {
   let isResetting = false
 
   watch(() => guiParams.planeX.scope, (d: number) => {
-    if (planes[0]) planes[0].constant = d
+    if (localPlanes[0]) localPlanes[0].constant = newPlanes[0]!.constant = d
 
     if (isResetting) return
     isResetting = true
@@ -325,7 +326,7 @@ function setupPlaneWatchers() {
   })
 
   watch(() => guiParams.planeY.scope, (d: number) => {
-    if (planes[1]) planes[1].constant = d
+    if (localPlanes[1]) localPlanes[1].constant = newPlanes[1]!.constant = d
 
     if (isResetting) return
     isResetting = true
@@ -340,7 +341,7 @@ function setupPlaneWatchers() {
   })
 
   watch(() => guiParams.planeZ.scope, (d: number) => {
-    if (planes[2]) planes[2].constant = d
+    if (localPlanes[2]) localPlanes[2].constant = newPlanes[2]!.constant = d
 
     if (isResetting) return
     isResetting = true
@@ -384,7 +385,7 @@ function setupLoadingWatcher() {
       }
     }
   })
-  
+
   // 监听loading进度和文本变化，更新VR loading mesh
   watch([() => loadingProgress.value, () => loadingText.value], () => {
     if (loadingMesh && loadingMesh.material && loadingMesh.material.map) {
@@ -395,20 +396,18 @@ function setupLoadingWatcher() {
 
 // 初始化逻辑
 function initPlanes() {
-  planes = [
+  // localPlanes: 局部坐标系的原始平面
+  localPlanes = [
     new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0),
     new THREE.Plane(new THREE.Vector3(0, -1, 0), 0),
     new THREE.Plane(new THREE.Vector3(0, 0, -1), 0)
   ];
 
-  for (let i = 0; i < 3; i++) {
-    const plane = planes[i];
-    if (!plane) continue;
-    // const planeHelper = new THREE.PlaneHelper(plane, 1, 0xe91e63);
-    // planeHelper.visible = true;
-    // planeHelpers.push(planeHelper);
-    // scene.value?.add(planeHelper);
-  }
+  newPlanes = [
+    new THREE.Plane(new THREE.Vector3(-1, 0, 0), 0),
+    new THREE.Plane(new THREE.Vector3(0, -1, 0), 0),
+    new THREE.Plane(new THREE.Vector3(0, 0, -1), 0)
+  ];
 }
 
 // 初始化 VR 交互组件
@@ -482,7 +481,7 @@ function initVRInteraction() {
       lutMesh.name = 'LUT_Mesh';
       interactiveGroup.add(lutMesh)
     }
-    
+
     // 创建 VR Loading HTMLMesh
     if (loadingPanelRef.value && interactiveGroup) {
       loadingMesh = new HTMLMesh(loadingPanelRef.value);
@@ -524,20 +523,20 @@ function updateVRUIPanels() {
 async function preloadSceneAssets() {
   isLoading.value = true;
   loadingProgress.value = 0;
-  
+
   try {
     loadingText.value = '加载基础场景...';
     await loadBaseScene();
     loadingProgress.value = 33;
-    
+
     loadingText.value = '加载环境贴图...';
     await loadHDR();
     loadingProgress.value = 66;
-    
+
     loadingText.value = '加载CAE模型...';
     await loadCAEModel();
     loadingProgress.value = 100;
-    
+
     // 短暂延迟后隐藏loading
     setTimeout(() => {
       isLoading.value = false;
@@ -601,7 +600,8 @@ async function loadCAEModel() {
       metalness: 0,
       roughness: 0,
       vertexColors: true,
-      clippingPlanes: planes,
+      clippingPlanes: newPlanes,  // 使用世界空间裁剪平面（跟随物体旋转）
+      clipShadows: true,
     })
 
     caeMesh = new THREE.Mesh(geometry, material)
@@ -744,6 +744,7 @@ function alignCaeModelToBaseScene() {
 
   if (!caePivot) {
     caePivot = new THREE.Group()
+    caePivot.name = "Cae_Pivot";
     scene.value.add(caePivot)
   }
   caePivot.position.copy(targetCenter)
@@ -752,10 +753,16 @@ function alignCaeModelToBaseScene() {
   const localOffset = caeMesh.position.clone().sub(scaledCenter)
   caeMesh.position.copy(localOffset)
 
+
   caePivot.add(caeMesh)
   caePivot.updateMatrixWorld(true)
 
   caeModelCenter.copy(targetCenter)
+
+  // 更新裁剪平面的中心点为 targetCenter
+  if (localPlanes[0]) localPlanes[0].constant = newPlanes[0]!.constant = targetCenter.x
+  if (localPlanes[1]) localPlanes[1].constant = newPlanes[1]!.constant = targetCenter.y
+  if (localPlanes[2]) localPlanes[2].constant = newPlanes[2]!.constant = targetCenter.z
 }
 
 function focusObj(target: THREE.Object3D) {
@@ -842,19 +849,18 @@ function updateClippingPlaneRanges() {
     z: { min: minZ, max: maxZ }
   }
 
-  if (planes[0]) {
+  if (localPlanes[0]) {
     guiParams.planeX.scope = maxX
-    planes[0].constant = maxX
+    localPlanes[0].constant = newPlanes[0]!.constant = maxX
   }
-  if (planes[1]) {
+  if (localPlanes[1]) {
     guiParams.planeY.scope = maxY
-    planes[1].constant = maxY
+    localPlanes[1].constant = newPlanes[1]!.constant = maxY
   }
-  if (planes[2]) {
+  if (localPlanes[2]) {
     guiParams.planeZ.scope = maxZ
-    planes[2].constant = maxZ
+    localPlanes[2].constant = newPlanes[2]!.constant = maxZ
   }
-  console.log(planes,'planes');
 }
 
 function updateColors() {
@@ -1044,6 +1050,26 @@ function onLoop(delta: number, _time: number) {
     if (guiParams.rotation.leftRight) caePivot.rotateY(delta * guiParams.rotation.speed * 0.5)
   }
 
+  // 更新剖切平面（跟随物体旋转和平移）
+  const targetMesh = caePivot || caeMesh;
+  if (targetMesh && localPlanes.length === 3 && newPlanes.length === 3) {
+    targetMesh.updateMatrixWorld(true);
+    for (let i = 0; i < 3; i++) {
+      const worldPlane = localPlanes[i]!.clone();
+      worldPlane.applyMatrix4(targetMesh.matrixWorld);
+      newPlanes[i]!.normal.copy(worldPlane.normal);
+      let constant = worldPlane.constant;
+      if (i === 0) {
+        constant -= targetMesh.position.x;
+      } else if (i === 1) {
+        constant -= targetMesh.position.y;
+      } else if (i === 2) {
+        constant += targetMesh.position.z;
+      }
+      newPlanes[i]!.constant = constant;
+    }
+  }
+
   if (vrManager) {
     vrManager.update()
   }
@@ -1068,9 +1094,9 @@ function getClipFrame(type: 'x' | 'y' | 'z') {
     if (!caeMesh || !caePivot) return
 
     const worldPoint = new THREE.Vector3()
-    if (type === 'x') worldPoint.set(planes[0]?.constant ?? 0, 0, 0)
-    else if (type === 'y') worldPoint.set(0, planes[1]?.constant ?? 0, 0)
-    else worldPoint.set(0, 0, planes[2]?.constant ?? 0)
+    if (type === 'x') worldPoint.set(localPlanes[0]?.constant ?? 0, 0, 0)
+    else if (type === 'y') worldPoint.set(0, localPlanes[1]?.constant ?? 0, 0)
+    else worldPoint.set(0, 0, localPlanes[2]?.constant ?? 0)
 
     worldPoint.sub(caePivot!.position)
     worldPoint.sub(caeMesh!.position)
@@ -1314,7 +1340,7 @@ onMounted(async () => {
   initMouseValueDisplay();
 
   // 注册动画循环回调
-  addLoopCallback(onLoop)
+  addLoopCallback(onLoop);
 })
 
 onUnmounted(() => {
@@ -1421,7 +1447,7 @@ onUnmounted(() => {
           <div ref="lutRef" />
         </div>
       </div>
-      
+
       <!-- VR Loading 面板 (3D HTMLMesh) -->
       <div ref="loadingPanelRef" class="vr-loading-panel">
         <div class="vr-loading-content">
