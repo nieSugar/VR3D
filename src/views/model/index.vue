@@ -42,6 +42,9 @@ const shuzhiRef2D = ref<HTMLDivElement | null>(null) // 数值 2D 显示引用
 const showValuePopover = ref(false)
 const pointValue = ref(0)
 const mouseLocation = reactive({ x: 0, y: 0 })
+const isLoading = ref(false) // Loading 状态
+const loadingProgress = ref(0) // Loading 进度
+const loadingText = ref('加载中...') // Loading 文本
 
 // -----------------------------------------------------------------------------
 // Three.js 核心状态 (使用 useThreeBase)
@@ -221,7 +224,12 @@ function setupCaeModelWatchers() {
     updateColors()
   })
 
-  watch(() => guiParams.modelName, () => {
+  watch(() => guiParams.modelName, async () => {
+    // 开启loading
+    isLoading.value = true;
+    loadingText.value = '切换模型中...';
+    loadingProgress.value = 20;
+    
     // 清理切面网格
     if (meshClip.value) {
       if (meshClip.value.geometry) meshClip.value.geometry.dispose();
@@ -250,6 +258,8 @@ function setupCaeModelWatchers() {
       caePivot.value = null;
     }
 
+    loadingProgress.value = 50;
+    
     guiParams.planeX.scope = 0;
     guiParams.planeY.scope = 0;
     guiParams.planeZ.scope = 0;
@@ -269,7 +279,20 @@ function setupCaeModelWatchers() {
     typeNodeOptions.value = [];
     frameOptions.value = [];
 
-    loadCAEModel();
+    loadingText.value = '加载新模型...';
+    loadingProgress.value = 70;
+    
+    try {
+      await loadCAEModel();
+      loadingProgress.value = 100;
+      
+      setTimeout(() => {
+        isLoading.value = false;
+      }, 300);
+    } catch (error) {
+      console.error('切换模型失败:', error);
+      isLoading.value = false;
+    }
   });
 }
 
@@ -465,9 +488,30 @@ function updateVRUIPanels() {
 }
 
 async function preloadSceneAssets() {
-  await loadBaseScene();
-  await loadHDR();
-  await loadCAEModel();
+  isLoading.value = true;
+  loadingProgress.value = 0;
+  
+  try {
+    loadingText.value = '加载基础场景...';
+    await loadBaseScene();
+    loadingProgress.value = 33;
+    
+    loadingText.value = '加载环境贴图...';
+    await loadHDR();
+    loadingProgress.value = 66;
+    
+    loadingText.value = '加载CAE模型...';
+    await loadCAEModel();
+    loadingProgress.value = 100;
+    
+    // 短暂延迟后隐藏loading
+    setTimeout(() => {
+      isLoading.value = false;
+    }, 300);
+  } catch (error) {
+    console.error('加载资源失败:', error);
+    isLoading.value = false;
+  }
 }
 
 async function loadCAEModel() {
@@ -1285,6 +1329,18 @@ onUnmounted(() => {
   <div class="model-root">
     <div ref="container" class="model-container"></div>
 
+    <!-- Loading 遮罩 -->
+    <div v-if="isLoading" class="loading-overlay">
+      <div class="loading-content">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">{{ loadingText }}</div>
+        <div class="loading-progress-bar">
+          <div class="loading-progress-fill" :style="{ width: loadingProgress + '%' }"></div>
+        </div>
+        <div class="loading-percentage">{{ loadingProgress }}%</div>
+      </div>
+    </div>
+
     <div v-show="showGUI2D && !isVRMode" class="desktop-ui">
       <div class="gui-panel">
         <SettingsPanel :params="guiParams" :options="{
@@ -1465,5 +1521,69 @@ onUnmounted(() => {
 
 .gui-panel-3d::-webkit-scrollbar-thumb:hover {
   background: rgba(78, 205, 196, 0.6);
+}
+
+/* Loading 样式 */
+.loading-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  backdrop-filter: blur(8px);
+}
+
+.loading-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+.loading-spinner {
+  width: 60px;
+  height: 60px;
+  border: 4px solid rgba(78, 205, 196, 0.2);
+  border-top-color: rgba(78, 205, 196, 1);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loading-text {
+  color: #fff;
+  font-size: 18px;
+  font-weight: 500;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+.loading-progress-bar {
+  width: 300px;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.loading-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4ecdc4 0%, #44a6a0 100%);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+  box-shadow: 0 0 10px rgba(78, 205, 196, 0.5);
+}
+
+.loading-percentage {
+  color: rgba(78, 205, 196, 1);
+  font-size: 16px;
+  font-weight: 600;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
 }
 </style>
