@@ -107,6 +107,10 @@ export class VRManager {
   // 用户自定义回调
   private onSessionStart?: () => void;
   private onSessionEnd?: () => void;
+  
+  // 头盔可见性监听器
+  private visibilityChangeHandler: (() => void) | null = null;
+  private currentSession: XRSession | null = null;
 
   constructor(config: VRManagerConfig) {
     this.renderer = config.renderer;
@@ -426,12 +430,31 @@ export class VRManager {
       this.moveControllersToParent(this.vrPlayerRig);
       this.log('手柄已绑定到玩家');
 
+      // 监听头盔可见性变化（用户取下头盔）
+      this.currentSession = this.renderer.xr.getSession();
+      if (this.currentSession) {
+        this.visibilityChangeHandler = () => {
+          if (this.currentSession?.visibilityState === 'hidden') {
+            this.log('检测到用户取下头盔，准备退出VR');
+            this.exitVR();
+          }
+        };
+        this.currentSession.addEventListener('visibilitychange', this.visibilityChangeHandler);
+      }
+
       // 调用用户自定义回调
       this.onSessionStart?.();
     });
 
     this.renderer.xr.addEventListener('sessionend', () => {
       this.log('✓ 已切换到桌面模式');
+
+      // 移除头盔可见性监听器
+      if (this.currentSession && this.visibilityChangeHandler) {
+        this.currentSession.removeEventListener('visibilitychange', this.visibilityChangeHandler);
+        this.visibilityChangeHandler = null;
+        this.currentSession = null;
+      }
 
       // 重新启用 OrbitControls
       if (this.controls) {
@@ -502,6 +525,11 @@ export class VRManager {
           // A键跳跃（右手按钮4）
           if (hand === 'Right' && btnIndex === 4) {
             this.handleJump();
+          }
+          
+          // B键退出VR（右手按钮5）
+          if (hand === 'Right' && btnIndex === 5) {
+            this.exitVR();
           }
         }
         // 释放事件
@@ -580,6 +608,19 @@ export class VRManager {
   public setBoundary(boundary: VRBoundary): void {
     this.boundary = boundary;
     this.log(`边界已设置: X[${boundary.minX.toFixed(1)}, ${boundary.maxX.toFixed(1)}], Z[${boundary.minZ.toFixed(1)}, ${boundary.maxZ.toFixed(1)}]`);
+  }
+
+  // 退出VR模式
+  public async exitVR(): Promise<void> {
+    const session = this.renderer.xr.getSession();
+    if (session) {
+      try {
+        await session.end();
+        this.log('已退出VR模式');
+      } catch (error) {
+        console.error('退出VR失败:', error);
+      }
+    }
   }
 
   // 清理资源

@@ -83,7 +83,7 @@ let minval = 0
 const raycaster = new THREE.Raycaster()
 const mouse = new THREE.Vector2()
 let setValueTimeout: number
-const animationStepSeconds = 0.5 // 数据帧切换间隔（秒）
+const animationStepSeconds = 0.2 // 数据帧切换间隔（秒）
 let animationElapsed = 0
 let animationFrameIndex = 0
 let isDataAnimationPlaying = false
@@ -1275,7 +1275,7 @@ onMounted(async () => {
     scene: scene.value!,
     camera: camera.value!,
     controls: controls.value!,
-    framebufferScale: 1.5,
+    framebufferScale: 4,
     playerHeight: 1.5,
     mesh: caeMesh.value || undefined,
     testObjects: interactableObjects as THREE.Mesh[],
