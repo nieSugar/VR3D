@@ -514,8 +514,8 @@ export class VRManager {
         // 保存当前状态
         this.prevButtonStates.set(hand, gamepad.buttons.map(b => b.pressed));
 
-        // 摇杆移动 - 左手摇杆移动，方向由左手控制器朝向决定
-        if (index === 0 && this.isMovementEnabled) {
+        // 摇杆移动 - 左右手摇杆都可以移动，方向由对应控制器朝向决定
+        if (this.isMovementEnabled) {
           const deadzone = 0.2;
           // 应用死区并归一化
           let x = Math.abs(gamepad.thumbstickX) > deadzone ? gamepad.thumbstickX : 0;
