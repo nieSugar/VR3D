@@ -37,6 +37,7 @@ const lutRef = ref<HTMLDivElement | null>(null)
 const shuzhiRef = ref<HTMLDivElement | null>(null)
 const guiPanelRef = ref<HTMLElement | null>(null) // GUI 面板引用
 const lutBodyRef = ref<HTMLDivElement | null>(null) // Lut 面板引用（3D VR 版本）
+const loadingPanelRef = ref<HTMLElement | null>(null) // VR Loading 面板引用
 const lutRef2D = ref<HTMLDivElement | null>(null) // Lut 2D 显示引用
 const shuzhiRef2D = ref<HTMLDivElement | null>(null) // 数值 2D 显示引用
 const showValuePopover = ref(false)
@@ -56,6 +57,7 @@ const vrManager = shallowRef<VRManager | null>(null)
 const interactiveGroup = shallowRef<InteractiveGroup | null>(null)
 const guiMesh = shallowRef<HTMLMesh | null>(null)
 const lutMesh = shallowRef<HTMLMesh | null>(null)
+const loadingMesh = shallowRef<HTMLMesh | null>(null) // VR Loading面板
 const caeMesh = shallowRef<THREE.Mesh | null>(null)
 const caePivot = shallowRef<THREE.Group | null>(null)
 const baseSceneModel = shallowRef<THREE.Group | null>(null)
@@ -187,6 +189,7 @@ setupCaeModelWatchers()
 setupAnimationWatchers()
 setupPlaneWatchers()
 setupDataWatchers()
+setupLoadingWatcher()
 
 // Watchers
 function setupCaeModelWatchers() {
@@ -370,6 +373,26 @@ function setupDataWatchers() {
   })
 }
 
+function setupLoadingWatcher() {
+  // 监听loading状态，控制VR中的loading mesh显示/隐藏
+  watch(() => isLoading.value, (loading) => {
+    if (loadingMesh.value) {
+      loadingMesh.value.visible = loading;
+      // 更新loading mesh材质贴图
+      if (loadingMesh.value.material && loadingMesh.value.material.map) {
+        loadingMesh.value.material.map.needsUpdate = true;
+      }
+    }
+  })
+  
+  // 监听loading进度和文本变化，更新VR loading mesh
+  watch([() => loadingProgress.value, () => loadingText.value], () => {
+    if (loadingMesh.value && loadingMesh.value.material && loadingMesh.value.material.map) {
+      loadingMesh.value.material.map.needsUpdate = true;
+    }
+  })
+}
+
 // 初始化逻辑
 function initPlanes() {
   planes = [
@@ -458,6 +481,17 @@ function initVRInteraction() {
       lutMesh.value.scale.setScalar(3);
       lutMesh.value.name = 'LUT_Mesh';
       interactiveGroup.value.add(lutMesh.value)
+    }
+    
+    // 创建 VR Loading HTMLMesh
+    if (loadingPanelRef.value && interactiveGroup.value) {
+      loadingMesh.value = new HTMLMesh(loadingPanelRef.value);
+      loadingMesh.value.position.set(0, 1.6, -1.5);
+      loadingMesh.value.quaternion.identity();
+      loadingMesh.value.scale.setScalar(2);
+      loadingMesh.value.name = 'Loading_Mesh';
+      loadingMesh.value.visible = false; // 默认隐藏
+      interactiveGroup.value.add(loadingMesh.value);
     }
   }, 100)
 }
@@ -1305,6 +1339,14 @@ onUnmounted(() => {
     lutMesh.value.material.dispose()
     lutMesh.value.geometry.dispose()
   }
+  if (loadingMesh.value) {
+    if (loadingMesh.value.material.map) {
+      const img = loadingMesh.value.material.map.image as HTMLElement
+      if (img && img.parentElement) img.parentElement.remove()
+    }
+    loadingMesh.value.material.dispose()
+    loadingMesh.value.geometry.dispose()
+  }
   interactableObjects.forEach(obj => {
     const mesh = obj as THREE.Mesh
     mesh.geometry.dispose()
@@ -1377,6 +1419,18 @@ onUnmounted(() => {
         <div class="flex">
           <div ref="shuzhiRef" class="mr-1" />
           <div ref="lutRef" />
+        </div>
+      </div>
+      
+      <!-- VR Loading 面板 (3D HTMLMesh) -->
+      <div ref="loadingPanelRef" class="vr-loading-panel">
+        <div class="vr-loading-content">
+          <div class="vr-loading-spinner"></div>
+          <div class="vr-loading-text">{{ loadingText }}</div>
+          <div class="vr-loading-progress-bar">
+            <div class="vr-loading-progress-fill" :style="{ width: loadingProgress + '%' }"></div>
+          </div>
+          <div class="vr-loading-percentage">{{ loadingProgress }}%</div>
         </div>
       </div>
     </div>
@@ -1585,5 +1639,69 @@ onUnmounted(() => {
   font-size: 16px;
   font-weight: 600;
   text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+}
+
+/* VR Loading 面板样式 */
+.vr-loading-panel {
+  width: 500px;
+  height: 400px;
+  background: linear-gradient(135deg, rgba(30, 30, 30, 0.98) 0%, rgba(20, 20, 20, 0.95) 100%);
+  padding: 40px;
+  border-radius: 16px;
+  border: 2px solid rgba(78, 205, 196, 0.5);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.8);
+  position: absolute;
+  left: -9999px;
+  top: -9999px;
+  cursor: pointer;
+}
+
+.vr-loading-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 30px;
+  height: 100%;
+}
+
+.vr-loading-spinner {
+  width: 80px;
+  height: 80px;
+  border: 6px solid rgba(78, 205, 196, 0.2);
+  border-top-color: rgba(78, 205, 196, 1);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.vr-loading-text {
+  color: #fff;
+  font-size: 28px;
+  font-weight: 600;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.8);
+  text-align: center;
+}
+
+.vr-loading-progress-bar {
+  width: 100%;
+  height: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.vr-loading-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4ecdc4 0%, #44a6a0 100%);
+  border-radius: 6px;
+  transition: width 0.3s ease;
+  box-shadow: 0 0 15px rgba(78, 205, 196, 0.8);
+}
+
+.vr-loading-percentage {
+  color: rgba(78, 205, 196, 1);
+  font-size: 32px;
+  font-weight: 700;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
 }
 </style>
