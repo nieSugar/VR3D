@@ -74,6 +74,11 @@ let getClipFrameTimeout: number | undefined
 const clipUrl: string | undefined = '/api/Clip' // 切面数据请求 URL
 // const clipPath: string | undefined = ''
 
+// 保存模型初始状态
+let initialModelPosition = new THREE.Vector3()
+let initialModelRotation = new THREE.Euler()
+let initialModelScale = new THREE.Vector3()
+
 let lut = new Lut()
 let localPlanes: THREE.Plane[] = [] // 局部空间裁剪平面
 let newPlanes: THREE.Plane[] = [] // 世界空间裁剪平面
@@ -759,6 +764,11 @@ function alignCaeModelToBaseScene() {
 
   caeModelCenter.copy(targetCenter)
 
+  // 保存初始状态
+  initialModelPosition.copy(caePivot.position)
+  initialModelRotation.copy(caePivot.rotation)
+  initialModelScale.copy(caePivot.scale)
+
   // 更新裁剪平面的中心点为 targetCenter
   if (localPlanes[0]) localPlanes[0].constant = newPlanes[0]!.constant = targetCenter.x
   if (localPlanes[1]) localPlanes[1].constant = newPlanes[1]!.constant = targetCenter.y
@@ -1243,6 +1253,28 @@ function mapTaskData(taskvals: any[], newTaskValues: any[]) {
   }
 }
 
+// 重置模型位置
+function resetModelPosition() {
+  if (!caePivot) return
+
+  // 停止旋转动画
+  guiParams.rotation.upDown = false
+  guiParams.rotation.leftRight = false
+
+  // 重置位置、旋转和缩放
+  caePivot.position.copy(initialModelPosition)
+  caePivot.rotation.copy(initialModelRotation)
+  caePivot.scale.copy(initialModelScale)
+  
+  // 更新矩阵
+  caePivot.updateMatrixWorld(true)
+
+  // 重置相机视角
+  if (caePivot) {
+    focusObj(caePivot)
+  }
+}
+
 function floorPost() {
   if (!baseSceneModel) return
   const floor = baseSceneModel.children.find(child => child.name === '地板001');
@@ -1417,7 +1449,7 @@ onUnmounted(() => {
           frameOptions,
           colorMapOptions,
           planeRanges
-        }" />
+        }" @reset-model="resetModelPosition" />
       </div>
 
       <div class="lut-panel-2d">
@@ -1437,7 +1469,7 @@ onUnmounted(() => {
           frameOptions,
           colorMapOptions,
           planeRanges
-        }" />
+        }" @reset-model="resetModelPosition" />
       </div>
 
       <!-- LUT 颜色条和数值显示 (3D HTMLMesh) -->
@@ -1490,7 +1522,7 @@ onUnmounted(() => {
 /* HTMLMesh 3D GUI 面板样式 */
 .gui-panel-3d {
   width: 350px;
-  height: 700px;
+  height: 730px;
   background: linear-gradient(135deg, rgba(30, 30, 30, 0.98) 0%, rgba(20, 20, 20, 0.95) 100%);
   padding: 20px;
   border-radius: 12px;
@@ -1510,7 +1542,7 @@ onUnmounted(() => {
   top: 50px;
   left: 20px;
   width: 300px;
-  max-height: 80vh;
+  max-height: 81vh;
   overflow-y: auto;
   background-color: rgba(30, 30, 30, 0.95);
   padding: 16px;

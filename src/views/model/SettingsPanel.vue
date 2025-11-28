@@ -2,6 +2,7 @@
 import CustomCheckbox from '../../components/CustomCheckbox.vue'
 import CustomSelectV2, { type SelectOption } from '../../components/CustomSelectV2.vue'
 import CustomSlider from '../../components/CustomSlider.vue'
+import CustomActionButton from '../../components/CustomActionButton.vue'
 
 interface GuiParams {
   caeModel: {
@@ -41,6 +42,11 @@ interface PanelOptions {
 defineProps<{
   params: GuiParams
   options: PanelOptions
+  onResetModel?: () => void
+}>()
+
+const emit = defineEmits<{
+  resetModel: []
 }>()
 </script>
 
@@ -66,6 +72,7 @@ defineProps<{
       <CustomCheckbox v-model="params.rotation.upDown" label="上下旋转" />
       <CustomCheckbox v-model="params.rotation.leftRight" label="左右旋转" />
       <CustomSlider v-model="params.rotation.speed" label="旋转速度" :min="0.1" :max="5" :step="0.1" :decimals="1" />
+      <CustomActionButton label="重置模型位置" @click="emit('resetModel')" />
 
       <!-- 裁剪平面 -->
       <div class="section-title">剖切控制</div>
