@@ -62,10 +62,10 @@ defineProps<{
       <CustomSelectV2 v-model="params.caeModel.colorMap" label="颜色映射" :options="options.colorMapOptions" />
       <CustomCheckbox v-model="params.animate" label="动画播放" />
 
-      <!-- <div class="section-title">旋转控制</div>
+      <div class="section-title">旋转控制</div>
       <CustomCheckbox v-model="params.rotation.upDown" label="上下旋转" />
       <CustomCheckbox v-model="params.rotation.leftRight" label="左右旋转" />
-      <CustomSlider v-model="params.rotation.speed" label="旋转速度" :min="0.1" :max="5" :step="0.1" :decimals="1" /> -->
+      <CustomSlider v-model="params.rotation.speed" label="旋转速度" :min="0.1" :max="5" :step="0.1" :decimals="1" />
 
       <!-- 裁剪平面 -->
       <div class="section-title">剖切控制</div>
