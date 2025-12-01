@@ -269,6 +269,9 @@ function setupCaeModelWatchers() {
 
     loadingProgress.value = 50;
 
+    // 重置线框模式
+    guiParams.caeModel.wireframe = false;
+
     guiParams.planeX.scope = 0;
     guiParams.planeY.scope = 0;
     guiParams.planeZ.scope = 0;
