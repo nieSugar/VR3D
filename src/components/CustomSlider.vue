@@ -9,7 +9,7 @@
             <div class="slider-fill" :style="fillStyle"></div>
           </div>
         </div>
-        <input ref="inputRef" type="text" :value="displayValue" @input="onInput" @keydown="onKeyDown"
+        <input ref="inputRef" type="text" :value="displayValue" disabled @input="onInput" @keydown="onKeyDown"
           @wheel.prevent="onInputWheel" @mousedown="onInputMouseDown" @focus="onFocus" @blur="onBlur"
           class="slider-value" />
       </div>
