@@ -1106,6 +1106,28 @@ function getClipFrame(type: 'x' | 'y' | 'z') {
   getClipFrameTimeout = setTimeout(async () => {
     if (!caeMesh || !caePivot) return
 
+
+    if (meshClip) {
+      if (caePivot) caePivot.remove(meshClip)
+      else scene.value?.remove(meshClip)
+      meshClip = null
+    }
+
+
+    // 获取模型的真实边界
+    const bbox = new THREE.Box3().setFromObject(caeMesh)
+    const currentScope = type === 'x' ? guiParams.planeX.scope :
+      type === 'y' ? guiParams.planeY.scope :
+        guiParams.planeZ.scope
+    const bboxMax = type === 'x' ? bbox.max.x : type === 'y' ? bbox.max.y : bbox.max.z
+    const bboxMin = type === 'x' ? bbox.min.x : type === 'y' ? bbox.min.y : bbox.min.z
+
+    // 如果剖切值超过模型边界，不发送请求
+    if (currentScope > bboxMax || currentScope < bboxMin) {
+      console.log(`剖切值 ${currentScope} 超过模型边界 [${bboxMin}, ${bboxMax}]，取消请求`)
+      return
+    }
+
     const worldPoint = new THREE.Vector3()
     if (type === 'x') worldPoint.set(localPlanes[0]?.constant ?? 0, 0, 0)
     else if (type === 'y') worldPoint.set(0, localPlanes[1]?.constant ?? 0, 0)
@@ -1136,11 +1158,6 @@ function getClipFrame(type: 'x' | 'y' | 'z') {
       const response = await fetch(`${clipUrl}?${searchParams.toString()}`)
       const data = await response.json()
 
-      if (meshClip) {
-        if (caePivot) caePivot.remove(meshClip)
-        else scene.value?.remove(meshClip)
-        meshClip = null
-      }
 
       const mat = new THREE.MeshStandardMaterial({
         side: THREE.DoubleSide,
@@ -1268,7 +1285,7 @@ function resetModelPosition() {
   caePivot.position.copy(initialModelPosition)
   caePivot.rotation.copy(initialModelRotation)
   caePivot.scale.copy(initialModelScale)
-  
+
   // 更新矩阵
   caePivot.updateMatrixWorld(true)
 
