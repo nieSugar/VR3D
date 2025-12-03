@@ -56,6 +56,12 @@ const routes: RouteRecordRaw[] = [
     component: () => import("../views/digitalbacon-ui.vue"),
     meta: { title: "digitalbacon-ui" },
   },
+  {
+    path: "/clipping-demo",
+    name: "ClippingDemo",
+    component: () => import("../views/ClippingDemo.vue"),
+    meta: { title: "Clipping Planes 演示" },
+  },
 ];
 
 const router = createRouter({
